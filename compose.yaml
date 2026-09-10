@@ -9,19 +9,19 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      - DB_URL=postgres://user:password@postgres:5432/myfitnesspal?sslmode=disable
+      - DB_URL=postgres://user:password@postgres:5432/rankings?sslmode=disable
   postgres:
     image: postgres:18
     environment:
       - POSTGRES_USER=user
       - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=myfitnesspal
+      - POSTGRES_DB=rankings
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d myfitnesspal"]
+      test: ["CMD-SHELL", "pg_isready -U user -d rankings"]
       interval: 2s
       timeout: 5s
       retries: 10
