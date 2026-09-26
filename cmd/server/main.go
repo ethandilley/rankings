@@ -22,12 +22,30 @@ func main() {
 	defer conn.Close(context.Background())
 
 	rankingsService := rankings.NewRankingsService(conn)
+	playerService := players.NewPlayerService(conn)
 
 	mux := http.NewServeMux()
 	rankingsService.Register(mux)
 
 	log.Println("server listening on :8080")
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	if err := http.ListenAndServe(":8080", withCORS(mux)); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
+}
+
+// withCORS allows the static frontend (served from a different origin, or
+// opened as a local file:// page) to call this API from the browser.
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
