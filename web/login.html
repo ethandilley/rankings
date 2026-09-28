@@ -160,7 +160,7 @@ details.connection[open] summary::before { content: "▾ "; }
     <summary>Connection</summary>
     <div class="connection-body">
       <label for="apiBaseInput">API base URL</label>
-      <input id="apiBaseInput" type="text" placeholder="http://localhost:8080" autocomplete="off" spellcheck="false">
+      <input id="apiBaseInput" type="text" placeholder="http://localhost:8081" autocomplete="off" spellcheck="false">
       <div class="connection-hint">
         Leave as-is if the API is running on this machine. Changes are saved in this browser only.
       </div>
@@ -169,7 +169,7 @@ details.connection[open] summary::before { content: "▾ "; }
 </div>
 
 <script>
-const DEFAULT_API_BASE = (window.location.protocol === 'http:' || window.location.protocol === 'https:') ? window.location.origin : 'http://localhost:8080';
+const DEFAULT_API_BASE = (window.location.protocol === 'http:' || window.location.protocol === 'https:') ? window.location.origin : 'http://localhost:8081';
 let API_BASE = localStorage.getItem('rankings_api_base') || DEFAULT_API_BASE;
 
 const el = {};

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/ethandilley/rankings/internal/db"
 	"github.com/ethandilley/rankings/internal/server/auth"
@@ -13,7 +14,10 @@ import (
 )
 
 type PlayerRanking struct {
+	PlayerID   int64  `json:"player_id"`
 	PlayerName string `json:"player_name"`
+	Position   string `json:"position"`
+	Team       string `json:"team"`
 	Rank       int    `json:"rank"`
 }
 
@@ -23,19 +27,22 @@ type OwnerRanking struct {
 }
 
 type MoveRankingRequest struct {
-	PlayerName string `json:"player_name"`
+	PlayerID   *int64 `json:"player_id,omitempty"`
+	PlayerName string `json:"player_name,omitempty"`
 	Rank       int    `json:"rank"`
 }
 
 type AddPlayerRequest struct {
-	PlayerName string `json:"player_name"`
+	PlayerID   *int64 `json:"player_id,omitempty"`
+	PlayerName string `json:"player_name,omitempty"`
 	Rank       *int   `json:"rank,omitempty"` // optional; nil = append to end
 }
 
 var (
-	ErrOwnerNotFound  = errors.New("owner not found")
-	ErrPlayerNotFound = errors.New("player not found")
-	ErrPlayerExists   = errors.New("player already ranked for this owner")
+	ErrOwnerNotFound   = errors.New("owner not found")
+	ErrPlayerNotFound  = errors.New("player not found")
+	ErrPlayerAmbiguous = errors.New("player name is ambiguous")
+	ErrPlayerExists    = errors.New("player already ranked for this owner")
 )
 
 type RankingsService struct {
@@ -94,10 +101,7 @@ func (h *RankingsService) getRankings(w http.ResponseWriter, r *http.Request) {
 			byOwner[row.Owner] = or
 			order = append(order, row.Owner)
 		}
-		or.Rankings = append(or.Rankings, PlayerRanking{
-			PlayerName: row.PlayerName,
-			Rank:       int(row.Rank),
-		})
+		or.Rankings = append(or.Rankings, toPlayerRanking(row.PlayerID, row.PlayerName, row.Position, row.Team, int(row.Rank)))
 	}
 
 	out := make([]OwnerRanking, 0, len(order))
@@ -133,36 +137,53 @@ func (h *RankingsService) postRankings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "rankings must not be empty", http.StatusBadRequest)
 		return
 	}
-	for _, pr := range in.Rankings {
-		if pr.PlayerName == "" {
-			http.Error(w, "each ranking must include a player_name", http.StatusBadRequest)
+
+	// Resolve every entry to a player id before touching the database, so a
+	// bad name fails the request without deleting anything. In the request
+	// body player_id is a plain int64; zero means "not provided".
+	ids := make([]int64, len(in.Rankings))
+	for i, pr := range in.Rankings {
+		var idPtr *int64
+		if pr.PlayerID != 0 {
+			idPtr = &pr.PlayerID
+		}
+		id, err := h.resolvePlayerID(r.Context(), idPtr, pr.PlayerName)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("rankings[%d]: %s", i, err.Error()), http.StatusBadRequest)
 			return
 		}
+		ids[i] = id
 	}
 
-	if err := h.replaceRankings(r.Context(), in); err != nil {
+	if err := h.replaceRankings(r.Context(), in.Owner, ids); err != nil {
 		http.Error(w, "failed to save rankings", http.StatusInternalServerError)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, in)
+	out, err := h.ownerRanking(r.Context(), in.Owner)
+	if err != nil {
+		http.Error(w, "failed to load rankings", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, out)
 }
 
 // replaceRankings swaps an owner's full ranking list in one transaction:
 // delete whatever they had, insert what they just posted.
-func (h *RankingsService) replaceRankings(ctx context.Context, in OwnerRanking) error {
+func (h *RankingsService) replaceRankings(ctx context.Context, owner string, playerIDs []int64) error {
 	return h.withTx(ctx, func(q *db.Queries) error {
-		if err := q.DeleteRankingsByOwner(ctx, in.Owner); err != nil {
+		if err := q.DeleteRankingsByOwner(ctx, owner); err != nil {
 			return fmt.Errorf("delete existing rankings: %w", err)
 		}
 
-		for _, pr := range in.Rankings {
+		for i, id := range playerIDs {
 			if err := q.InsertRanking(ctx, db.InsertRankingParams{
-				Owner:      in.Owner,
-				PlayerName: pr.PlayerName,
-				Rank:       int32(pr.Rank),
+				Owner:    owner,
+				PlayerID: id,
+				Rank:     int32(i + 1),
 			}); err != nil {
-				return fmt.Errorf("insert ranking %q: %w", pr.PlayerName, err)
+				return fmt.Errorf("insert ranking %d: %w", id, err)
 			}
 		}
 
@@ -185,8 +206,8 @@ func (h *RankingsService) moveRanking(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
-	if req.PlayerName == "" {
-		http.Error(w, "player_name is required", http.StatusBadRequest)
+	if (req.PlayerID == nil) == (req.PlayerName == "") {
+		http.Error(w, "exactly one of player_id or player_name is required", http.StatusBadRequest)
 		return
 	}
 	if req.Rank < 1 {
@@ -194,7 +215,12 @@ func (h *RankingsService) moveRanking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := h.movePlayer(r.Context(), owner, req.PlayerName, req.Rank)
+	id, err := h.resolvePlayerID(r.Context(), req.PlayerID, req.PlayerName)
+	if h.writeErrIfAny(w, err) {
+		return
+	}
+
+	updated, err := h.movePlayer(r.Context(), owner, id, req.Rank)
 	if h.writeErrIfAny(w, err) {
 		return
 	}
@@ -202,16 +228,16 @@ func (h *RankingsService) moveRanking(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
-// movePlayer moves playerName to newRank within owner's list, shifting
+// movePlayer moves the player to newRank within owner's list, shifting
 // everyone else to keep ranks a contiguous 1..N sequence. Only rows whose
 // rank actually changes get written.
-func (h *RankingsService) movePlayer(ctx context.Context, owner, playerName string, newRank int) (*OwnerRanking, error) {
+func (h *RankingsService) movePlayer(ctx context.Context, owner string, playerID int64, newRank int) (*OwnerRanking, error) {
 	return h.withOwnerRowsTx(ctx, owner, func(q *db.Queries, rows []db.ListRankingsByOwnerForUpdateRow) ([]db.ListRankingsByOwnerForUpdateRow, error) {
 		if len(rows) == 0 {
 			return nil, ErrOwnerNotFound
 		}
 
-		idx := indexOfPlayer(rows, playerName)
+		idx := indexOfPlayerID(rows, playerID)
 		if idx == -1 {
 			return nil, ErrPlayerNotFound
 		}
@@ -247,8 +273,8 @@ func (h *RankingsService) addPlayer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
-	if req.PlayerName == "" {
-		http.Error(w, "player_name is required", http.StatusBadRequest)
+	if (req.PlayerID == nil) == (req.PlayerName == "") {
+		http.Error(w, "exactly one of player_id or player_name is required", http.StatusBadRequest)
 		return
 	}
 	if req.Rank != nil && *req.Rank < 1 {
@@ -256,7 +282,18 @@ func (h *RankingsService) addPlayer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := h.addPlayerToRankings(r.Context(), owner, req.PlayerName, req.Rank)
+	id, err := h.resolvePlayerID(r.Context(), req.PlayerID, req.PlayerName)
+	if h.writeErrIfAny(w, err) {
+		return
+	}
+
+	player, err := h.q.GetPlayerByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, "player not found", http.StatusNotFound)
+		return
+	}
+
+	updated, err := h.addPlayerToRankings(r.Context(), owner, player, req.Rank)
 	if h.writeErrIfAny(w, err) {
 		return
 	}
@@ -264,11 +301,12 @@ func (h *RankingsService) addPlayer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, updated)
 }
 
-// addPlayerToRankings inserts playerName at the requested rank (or the end,
+// addPlayerToRankings inserts the player at the requested rank (or the end,
 // if rank is nil), shifting existing players down to make room.
-func (h *RankingsService) addPlayerToRankings(ctx context.Context, owner, playerName string, rank *int) (*OwnerRanking, error) {
+func (h *RankingsService) addPlayerToRankings(ctx context.Context, owner string, player db.GetPlayerByIDRow, rank *int) (*OwnerRanking, error) {
+	playerID := player.ID
 	return h.withOwnerRowsTx(ctx, owner, func(q *db.Queries, rows []db.ListRankingsByOwnerForUpdateRow) ([]db.ListRankingsByOwnerForUpdateRow, error) {
-		if indexOfPlayer(rows, playerName) != -1 {
+		if indexOfPlayerID(rows, playerID) != -1 {
 			return nil, ErrPlayerExists
 		}
 
@@ -283,24 +321,27 @@ func (h *RankingsService) addPlayerToRankings(ctx context.Context, owner, player
 		// Shift everyone at or after insertAt down by one before inserting,
 		// so the new row's UNIQUE(owner, rank) slot (if any) is free.
 		for i := len(rows) - 1; i >= insertAt; i-- {
-			if err := h.updateRankIfChanged(ctx, q, owner, rows[i].PlayerName, rows[i].Rank, int32(i+2)); err != nil {
+			if err := h.updateRankIfChanged(ctx, q, owner, rows[i].PlayerID, rows[i].Rank, int32(i+2)); err != nil {
 				return nil, err
 			}
 		}
 
 		if err := q.InsertRanking(ctx, db.InsertRankingParams{
-			Owner:      owner,
-			PlayerName: playerName,
-			Rank:       int32(insertAt + 1),
+			Owner:    owner,
+			PlayerID: playerID,
+			Rank:     int32(insertAt + 1),
 		}); err != nil {
-			return nil, fmt.Errorf("insert ranking %q: %w", playerName, err)
+			return nil, fmt.Errorf("insert ranking %d: %w", playerID, err)
 		}
 
 		final := make([]db.ListRankingsByOwnerForUpdateRow, 0, len(rows)+1)
 		final = append(final, rows[:insertAt]...)
 		final = append(final, db.ListRankingsByOwnerForUpdateRow{
 			Owner:      owner,
-			PlayerName: playerName,
+			PlayerID:   playerID,
+			PlayerName: player.PlayerName,
+			Position:   player.Position,
+			Team:       player.Team,
 		})
 		final = append(final, rows[insertAt:]...)
 		return final, nil
@@ -316,13 +357,14 @@ func (h *RankingsService) removePlayer(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	player := r.PathValue("player")
-	if player == "" {
-		http.Error(w, "player is required", http.StatusBadRequest)
+	rawID := r.PathValue("player")
+	playerID, err := strconv.ParseInt(rawID, 10, 64)
+	if err != nil {
+		http.Error(w, "player must be a numeric player id", http.StatusBadRequest)
 		return
 	}
 
-	updated, err := h.removePlayerFromRankings(r.Context(), owner, player)
+	updated, err := h.removePlayerFromRankings(r.Context(), owner, playerID)
 	if h.writeErrIfAny(w, err) {
 		return
 	}
@@ -330,24 +372,24 @@ func (h *RankingsService) removePlayer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
-// removePlayerFromRankings deletes playerName from owner's list and shifts
+// removePlayerFromRankings deletes the player from owner's list and shifts
 // everyone ranked below them up by one to keep ranks contiguous.
-func (h *RankingsService) removePlayerFromRankings(ctx context.Context, owner, playerName string) (*OwnerRanking, error) {
+func (h *RankingsService) removePlayerFromRankings(ctx context.Context, owner string, playerID int64) (*OwnerRanking, error) {
 	return h.withOwnerRowsTx(ctx, owner, func(q *db.Queries, rows []db.ListRankingsByOwnerForUpdateRow) ([]db.ListRankingsByOwnerForUpdateRow, error) {
 		if len(rows) == 0 {
 			return nil, ErrOwnerNotFound
 		}
 
-		idx := indexOfPlayer(rows, playerName)
+		idx := indexOfPlayerID(rows, playerID)
 		if idx == -1 {
 			return nil, ErrPlayerNotFound
 		}
 
 		if err := q.DeleteRanking(ctx, db.DeleteRankingParams{
-			Owner:      owner,
-			PlayerName: playerName,
+			Owner:    owner,
+			PlayerID: playerID,
 		}); err != nil {
-			return nil, fmt.Errorf("delete ranking %q: %w", playerName, err)
+			return nil, fmt.Errorf("delete ranking %d: %w", playerID, err)
 		}
 
 		rows = append(rows[:idx], rows[idx+1:]...)
@@ -362,6 +404,41 @@ func (h *RankingsService) removePlayerFromRankings(ctx context.Context, owner, p
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
+
+// resolvePlayerID maps a request reference to a players.id. A numeric
+// player_id wins and is validated against the table; otherwise the name is
+// resolved with a case-insensitive exact match, which must hit exactly one
+// player.
+func (h *RankingsService) resolvePlayerID(ctx context.Context, id *int64, name string) (int64, error) {
+	if id != nil {
+		if _, err := h.q.GetPlayerByID(ctx, *id); err != nil {
+			return 0, ErrPlayerNotFound
+		}
+		return *id, nil
+	}
+
+	rows, err := h.q.FindPlayersByName(ctx, name)
+	if err != nil {
+		return 0, err
+	}
+	switch len(rows) {
+	case 0:
+		return 0, ErrPlayerNotFound
+	case 1:
+		return rows[0].ID, nil
+	default:
+		return 0, ErrPlayerAmbiguous
+	}
+}
+
+// ownerRanking loads one owner's list (1..N ranks) for a response body.
+func (h *RankingsService) ownerRanking(ctx context.Context, owner string) (*OwnerRanking, error) {
+	rows, err := h.q.ListRankingsByOwnerForUpdate(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	return &OwnerRanking{Owner: owner, Rankings: toPlayerRankings(rows)}, nil
+}
 
 // withTx runs fn inside a transaction, committing on success and rolling
 // back automatically otherwise.
@@ -418,7 +495,7 @@ func (h *RankingsService) withOwnerRowsTx(
 // doesn't already match, given rows in their final desired order.
 func (h *RankingsService) applyRankOrder(ctx context.Context, q *db.Queries, owner string, rows []db.ListRankingsByOwnerForUpdateRow) error {
 	for i, row := range rows {
-		if err := h.updateRankIfChanged(ctx, q, owner, row.PlayerName, row.Rank, int32(i+1)); err != nil {
+		if err := h.updateRankIfChanged(ctx, q, owner, row.PlayerID, row.Rank, int32(i+1)); err != nil {
 			return err
 		}
 	}
@@ -427,28 +504,33 @@ func (h *RankingsService) applyRankOrder(ctx context.Context, q *db.Queries, own
 
 // updateRankIfChanged writes a player's new rank only if it actually differs
 // from what's currently stored, avoiding no-op writes during a shift.
-func (h *RankingsService) updateRankIfChanged(ctx context.Context, q *db.Queries, owner, playerName string, currentRank, wantRank int32) error {
+func (h *RankingsService) updateRankIfChanged(ctx context.Context, q *db.Queries, owner string, playerID int64, currentRank, wantRank int32) error {
 	if currentRank == wantRank {
 		return nil
 	}
 	if err := q.UpdateRankingRank(ctx, db.UpdateRankingRankParams{
-		Owner:      owner,
-		PlayerName: playerName,
-		Rank:       wantRank,
+		Owner:    owner,
+		PlayerID: playerID,
+		Rank:     wantRank,
 	}); err != nil {
-		return fmt.Errorf("update rank for %q: %w", playerName, err)
+		return fmt.Errorf("update rank for %d: %w", playerID, err)
 	}
 	return nil
 }
 
-// indexOfPlayer returns the index of playerName in rows, or -1 if absent.
-func indexOfPlayer(rows []db.ListRankingsByOwnerForUpdateRow, playerName string) int {
+// indexOfPlayerID returns the index of the row with playerID in rows, or -1
+// if absent.
+func indexOfPlayerID(rows []db.ListRankingsByOwnerForUpdateRow, playerID int64) int {
 	for i, row := range rows {
-		if row.PlayerName == playerName {
+		if row.PlayerID == playerID {
 			return i
 		}
 	}
 	return -1
+}
+
+func toPlayerRanking(playerID int64, playerName, position, team string, rank int) PlayerRanking {
+	return PlayerRanking{PlayerID: playerID, PlayerName: playerName, Position: position, Team: team, Rank: rank}
 }
 
 // toPlayerRankings converts loaded rows into the API response shape, in
@@ -457,7 +539,7 @@ func indexOfPlayer(rows []db.ListRankingsByOwnerForUpdateRow, playerName string)
 func toPlayerRankings(rows []db.ListRankingsByOwnerForUpdateRow) []PlayerRanking {
 	out := make([]PlayerRanking, len(rows))
 	for i, row := range rows {
-		out[i] = PlayerRanking{PlayerName: row.PlayerName, Rank: i + 1}
+		out[i] = toPlayerRanking(row.PlayerID, row.PlayerName, row.Position, row.Team, i+1)
 	}
 	return out
 }
@@ -470,6 +552,9 @@ func (h *RankingsService) writeErrIfAny(w http.ResponseWriter, err error) bool {
 		return false
 	case errors.Is(err, ErrOwnerNotFound), errors.Is(err, ErrPlayerNotFound):
 		http.Error(w, err.Error(), http.StatusNotFound)
+		return true
+	case errors.Is(err, ErrPlayerAmbiguous):
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return true
 	case errors.Is(err, ErrPlayerExists):
 		http.Error(w, err.Error(), http.StatusConflict)

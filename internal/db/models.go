@@ -9,21 +9,21 @@ import (
 )
 
 type Player struct {
-	ID         int64
-	Owner      string
-	PlayerName string
-	Position   string
-	Team       string
-	DraftedAt  int32
-	CreatedAt  pgtype.Timestamptz
+	ID                int64
+	DraftedByUsername pgtype.Text
+	PlayerName        string
+	Position          string
+	Team              string
+	DraftedAt         int32
+	CreatedAt         pgtype.Timestamptz
 }
 
 type Ranking struct {
-	ID         int64
-	Owner      string
-	PlayerName string
-	Rank       int32
-	CreatedAt  pgtype.Timestamptz
+	ID        int64
+	Owner     string
+	Rank      int32
+	CreatedAt pgtype.Timestamptz
+	PlayerID  int64
 }
 
 type Session struct {

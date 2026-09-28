@@ -57,7 +57,7 @@ func allowedOrigins() map[string]bool {
 		raw = os.Getenv("ALLOWED_ORIGIN")
 	}
 	if raw == "" {
-		raw = "http://localhost:8080"
+		raw = "http://localhost:8081"
 	}
 
 	allowed := map[string]bool{}

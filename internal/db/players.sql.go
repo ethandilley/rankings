@@ -7,21 +7,89 @@ package db
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const listPlayers = `-- name: ListPlayers :many
-SELECT id, owner, player_name, position, team, drafted_at
+const findPlayersByName = `-- name: FindPlayersByName :many
+SELECT id, drafted_by_username, player_name, position, team
 FROM players
-ORDER BY owner, player_name
+WHERE lower(player_name) = lower($1)
+`
+
+type FindPlayersByNameRow struct {
+	ID                int64
+	DraftedByUsername pgtype.Text
+	PlayerName        string
+	Position          string
+	Team              string
+}
+
+func (q *Queries) FindPlayersByName(ctx context.Context, lower string) ([]FindPlayersByNameRow, error) {
+	rows, err := q.db.Query(ctx, findPlayersByName, lower)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FindPlayersByNameRow
+	for rows.Next() {
+		var i FindPlayersByNameRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DraftedByUsername,
+			&i.PlayerName,
+			&i.Position,
+			&i.Team,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPlayerByID = `-- name: GetPlayerByID :one
+SELECT id, drafted_by_username, player_name, position, team
+FROM players
+WHERE id = $1
+`
+
+type GetPlayerByIDRow struct {
+	ID                int64
+	DraftedByUsername pgtype.Text
+	PlayerName        string
+	Position          string
+	Team              string
+}
+
+func (q *Queries) GetPlayerByID(ctx context.Context, id int64) (GetPlayerByIDRow, error) {
+	row := q.db.QueryRow(ctx, getPlayerByID, id)
+	var i GetPlayerByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.DraftedByUsername,
+		&i.PlayerName,
+		&i.Position,
+		&i.Team,
+	)
+	return i, err
+}
+
+const listPlayers = `-- name: ListPlayers :many
+SELECT id, drafted_by_username, player_name, position, team
+FROM players
+ORDER BY position, player_name
 `
 
 type ListPlayersRow struct {
-	ID         int64
-	Owner      string
-	PlayerName string
-	Position   string
-	Team       string
-	DraftedAt  int32
+	ID                int64
+	DraftedByUsername pgtype.Text
+	PlayerName        string
+	Position          string
+	Team              string
 }
 
 func (q *Queries) ListPlayers(ctx context.Context) ([]ListPlayersRow, error) {
@@ -35,11 +103,53 @@ func (q *Queries) ListPlayers(ctx context.Context) ([]ListPlayersRow, error) {
 		var i ListPlayersRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.Owner,
+			&i.DraftedByUsername,
 			&i.PlayerName,
 			&i.Position,
 			&i.Team,
-			&i.DraftedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchPlayersByName = `-- name: SearchPlayersByName :many
+SELECT id, drafted_by_username, player_name, position, team
+FROM players
+WHERE player_name ILIKE $1
+ORDER BY player_name
+LIMIT 20
+`
+
+type SearchPlayersByNameRow struct {
+	ID                int64
+	DraftedByUsername pgtype.Text
+	PlayerName        string
+	Position          string
+	Team              string
+}
+
+// Caller passes a pre-wildcarded pattern, e.g. "%smith%".
+func (q *Queries) SearchPlayersByName(ctx context.Context, playerName string) ([]SearchPlayersByNameRow, error) {
+	rows, err := q.db.Query(ctx, searchPlayersByName, playerName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchPlayersByNameRow
+	for rows.Next() {
+		var i SearchPlayersByNameRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DraftedByUsername,
+			&i.PlayerName,
+			&i.Position,
+			&i.Team,
 		); err != nil {
 			return nil, err
 		}

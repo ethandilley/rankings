@@ -326,6 +326,25 @@
     font-size: 15px;
     font-weight: 500;
     overflow-wrap: anywhere;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .rank-player-name {
+    overflow-wrap: anywhere;
+  }
+
+  .rank-meta {
+    flex: none;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    background: rgba(148, 184, 219, 0.08);
+    border-radius: 999px;
+    padding: 2px 8px;
   }
 
   .rank-actions {
@@ -420,6 +439,11 @@
     background: #1c3327;
     border-color: var(--success);
     color: #a8e6c3;
+  }
+  .toast.info {
+    background: var(--bg-raised);
+    border-color: var(--accent);
+    color: var(--text);
   }
 
   @keyframes toast-in {
@@ -540,7 +564,7 @@
     <p>Point this board at your rankings server. It talks to the plain HTTP API — <code>GET/POST /rankings</code>, <code>PATCH /rankings/{owner}/move</code>, etc.</p>
     <div class="field">
       <label for="apiBaseInput">API base URL</label>
-      <input type="text" id="apiBaseInput" placeholder="http://localhost:8080">
+      <input type="text" id="apiBaseInput" placeholder="http://localhost:8081">
     </div>
     <div class="dialog-actions">
       <button class="btn secondary" id="cancelSettings" type="button">Cancel</button>
@@ -738,10 +762,10 @@
   "Jets D/ST (NYJ, D/ST)"
 ];
 
-  const DEFAULT_API_BASE = (window.location.protocol === 'http:' || window.location.protocol === 'https:') ? window.location.origin : 'http://localhost:8080';
+  const DEFAULT_API_BASE = (window.location.protocol === 'http:' || window.location.protocol === 'https:') ? window.location.origin : 'http://localhost:8081';
   let API_BASE = localStorage.getItem('rankings_api_base') || DEFAULT_API_BASE;
 
-  /** @type {{owner: string, rankings: {player_name: string, rank: number}[]}[]} */
+  /** @type {{owner: string, rankings: {player_id: number, player_name: string, position: string, team: string, rank: number}[]}[]} */
   let owners = [];
   let selectedOwner = null;
   let loading = true;
@@ -829,19 +853,75 @@
       method: 'POST',
       body: JSON.stringify({ owner, rankings }),
     }),
-    moveRanking: (owner, playerName, rank) => apiRequest(
+    getPlayers: () => apiRequest('/players'),
+    moveRanking: (owner, playerId, rank) => apiRequest(
       '/rankings/' + encodeURIComponent(owner) + '/move',
-      { method: 'PATCH', body: JSON.stringify({ player_name: playerName, rank }) }
+      { method: 'PATCH', body: JSON.stringify({ player_id: playerId, rank }) }
     ),
-    addPlayer: (owner, playerName, rank) => apiRequest(
+    addPlayer: (owner, playerRef, rank) => apiRequest(
       '/rankings/' + encodeURIComponent(owner) + '/players',
-      { method: 'POST', body: JSON.stringify({ player_name: playerName, rank: rank ?? undefined }) }
+      { method: 'POST', body: JSON.stringify(Object.assign({ rank: rank ?? undefined }, playerRef)) }
     ),
-    removePlayer: (owner, playerName) => apiRequest(
-      '/rankings/' + encodeURIComponent(owner) + '/players/' + encodeURIComponent(playerName),
+    removePlayer: (owner, playerId) => apiRequest(
+      '/rankings/' + encodeURIComponent(owner) + '/players/' + encodeURIComponent(playerId),
       { method: 'DELETE' }
     ),
   };
+
+  // ---------------------------------------------------------------------
+  // Player directory (autocomplete + name→id resolution)
+  // ---------------------------------------------------------------------
+  // Mirrors NormalizeName / StripTeamPosSuffix in
+  // internal/server/players/names.go, which port normalize_name() from
+  // scripts/load_players.py. Keep the two in sync.
+  function normalizeName(name) {
+    return String(name)
+      .toLowerCase()
+      .replace(/\./g, '')
+      .replace(/'/g, '')
+      .replace(/-/g, ' ')
+      .replace(/\b(jr|sr|ii|iii|iv|v)\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function stripTeamPosSuffix(name) {
+    return String(name).replace(/ \([A-Z]+, [A-Z/]+\)$/, '');
+  }
+
+  /** @type {Map<number, {id: number, player_name: string, position: string, team: string}>} */
+  let playersById = new Map();
+  const playersByExactName = new Map(); // lowercased name -> player
+  const playersByNormName = new Map(); // normalized name -> player
+
+  async function loadPlayers() {
+    try {
+      const list = await api.getPlayers();
+      playersById = new Map();
+      playersByExactName.clear();
+      playersByNormName.clear();
+      for (const p of list || []) {
+        playersById.set(p.id, p);
+        const exact = p.player_name.toLowerCase();
+        if (!playersByExactName.has(exact)) playersByExactName.set(exact, p);
+        const norm = normalizeName(p.player_name);
+        if (!playersByNormName.has(norm)) playersByNormName.set(norm, p);
+      }
+    } catch (err) {
+      // Non-fatal: the add form still submits plain names, which the server
+      // resolves as a fallback.
+    }
+  }
+
+  // resolvePlayer maps a typed name to a player record, or null. Tries an
+  // exact (case-insensitive) match first, then the normalized match.
+  function resolvePlayer(name) {
+    const trimmed = String(name || '').trim();
+    if (!trimmed) return null;
+    return playersByExactName.get(trimmed.toLowerCase())
+      || playersByNormName.get(normalizeName(trimmed))
+      || null;
+  }
 
   // ---------------------------------------------------------------------
   // Rendering
@@ -949,7 +1029,7 @@
       sorted.forEach((p, idx) => {
         const row = document.createElement('li');
         row.className = 'rank-row';
-        row.dataset.player = p.player_name;
+        row.dataset.player = p.player_id;
 
         const num = document.createElement('span');
         num.className = 'rank-num';
@@ -957,7 +1037,19 @@
 
         const name = document.createElement('span');
         name.className = 'rank-player';
-        name.textContent = p.player_name;
+
+        const nameText = document.createElement('span');
+        nameText.className = 'rank-player-name';
+        nameText.textContent = p.player_name;
+        name.appendChild(nameText);
+
+        const metaText = [p.position, p.team].filter(Boolean).join(' \u00b7 ');
+        if (metaText) {
+          const meta = document.createElement('span');
+          meta.className = 'rank-meta';
+          meta.textContent = metaText;
+          name.appendChild(meta);
+        }
 
         const actions = document.createElement('span');
         actions.className = 'rank-actions';
@@ -971,7 +1063,7 @@
           downBtn.title = 'Move down';
           downBtn.disabled = idx === sorted.length - 1;
 
-          const delBtn = iconButton('\u00d7', () => removePlayer(ownerData.owner, p.player_name));
+          const delBtn = iconButton('\u00d7', () => removePlayer(ownerData.owner, p));
           delBtn.title = 'Remove player';
           delBtn.classList.add('danger');
 
@@ -1019,7 +1111,8 @@
     form.innerHTML = `
       <div class="field grow">
         <label>Player name</label>
-        <input type="text" name="playerName" placeholder="e.g. Marcus Webb" autocomplete="off" required>
+        <input type="text" name="playerName" list="playerSuggestions" placeholder="Start typing a player\u2026" autocomplete="off" required>
+        <datalist id="playerSuggestions"></datalist>
       </div>
       <div class="field rank-field">
         <label>Rank (optional)</label>
@@ -1027,6 +1120,16 @@
       </div>
       <button type="submit" class="btn small">Add player</button>
     `;
+
+    const list = form.querySelector('datalist');
+    for (const p of playersById.values()) {
+      const opt = document.createElement('option');
+      opt.value = p.player_name;
+      const bits = [p.position, p.team].filter(Boolean);
+      if (bits.length) opt.label = bits.join(' \u00b7 ');
+      list.appendChild(opt);
+    }
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(form);
@@ -1035,10 +1138,15 @@
       if (!playerName) return;
       const rank = rankRaw ? parseInt(rankRaw, 10) : null;
 
+      // Prefer the player_id when the typed name resolves to a known
+      // player; fall back to the name and let the server resolve it.
+      const known = resolvePlayer(playerName);
+      const playerRef = known ? { player_id: known.id } : { player_name: playerName };
+
       const submitBtn = form.querySelector('button[type="submit"]');
       submitBtn.disabled = true;
       try {
-        const updated = await api.addPlayer(ownerData.owner, playerName, rank);
+        const updated = await api.addPlayer(ownerData.owner, playerRef, rank);
         applyOwnerUpdate(updated);
         toast(playerName + ' added to ' + ownerData.owner + '\u2019s board.', 'success');
         form.reset();
@@ -1078,19 +1186,19 @@
     if (newRank < 1) return;
 
     try {
-      const updated = await api.moveRanking(owner, player.player_name, newRank);
+      const updated = await api.moveRanking(owner, player.player_id, newRank);
       applyOwnerUpdate(updated);
     } catch (err) {
       toast(err.message, 'error');
     }
   }
 
-  async function removePlayer(owner, playerName) {
-    if (!confirm('Remove ' + playerName + ' from ' + owner + '\u2019s board?')) return;
+  async function removePlayer(owner, player) {
+    if (!confirm('Remove ' + player.player_name + ' from ' + owner + '\u2019s board?')) return;
     try {
-      const updated = await api.removePlayer(owner, playerName);
+      const updated = await api.removePlayer(owner, player.player_id);
       applyOwnerUpdate(updated);
-      toast(playerName + ' removed.', 'success');
+      toast(player.player_name + ' removed.', 'success');
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -1116,10 +1224,20 @@
 
     el.seedDefaultsBtn.disabled = true;
     try {
-      const rankings = DRAFT_ORDER_DEFAULT.map((playerName, i) => ({
-        player_name: playerName,
-        rank: i + 1,
-      }));
+      if (playersById.size === 0) await loadPlayers();
+      let unresolved = 0;
+      const rankings = DRAFT_ORDER_DEFAULT.map((rawName, i) => {
+        const known = resolvePlayer(stripTeamPosSuffix(rawName));
+        if (known) {
+          return { player_id: known.id, rank: i + 1 };
+        }
+        unresolved++;
+        return { player_name: rawName, rank: i + 1 };
+      });
+      if (unresolved > 0) {
+        toast(unresolved + ' of ' + DRAFT_ORDER_DEFAULT.length +
+          ' draft-order players could not be matched and were sent by name.', 'info');
+      }
       const result = await api.replaceRankings(owner, rankings);
       owners.push(result);
       renderOwnerList();
@@ -1171,7 +1289,9 @@
     const submitBtn = el.newOwnerForm.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
     try {
-      const created = await api.replaceRankings(owner, [{ player_name: firstPlayer, rank: 1 }]);
+      const known = resolvePlayer(firstPlayer);
+      const firstRef = known ? { player_id: known.id } : { player_name: firstPlayer };
+      const created = await api.replaceRankings(owner, [Object.assign({ rank: 1 }, firstRef)]);
       owners.push(created);
       el.newOwnerForm.reset();
       el.newOwnerForm.classList.add('hidden');
@@ -1211,7 +1331,7 @@
     renderOwnerList();
     renderBoard();
     try {
-      const data = await api.getRankings();
+      const [data] = await Promise.all([api.getRankings(), loadPlayers()]);
       owners = data || [];
       loading = false;
       setStatus('ok', API_BASE);

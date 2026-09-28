@@ -11,16 +11,16 @@ import (
 
 const deleteRanking = `-- name: DeleteRanking :exec
 DELETE FROM rankings
-WHERE owner = $1 AND player_name = $2
+WHERE owner = $1 AND player_id = $2
 `
 
 type DeleteRankingParams struct {
-	Owner      string
-	PlayerName string
+	Owner    string
+	PlayerID int64
 }
 
 func (q *Queries) DeleteRanking(ctx context.Context, arg DeleteRankingParams) error {
-	_, err := q.db.Exec(ctx, deleteRanking, arg.Owner, arg.PlayerName)
+	_, err := q.db.Exec(ctx, deleteRanking, arg.Owner, arg.PlayerID)
 	return err
 }
 
@@ -35,30 +35,34 @@ func (q *Queries) DeleteRankingsByOwner(ctx context.Context, owner string) error
 }
 
 const insertRanking = `-- name: InsertRanking :exec
-INSERT INTO rankings (owner, player_name, rank)
+INSERT INTO rankings (owner, player_id, rank)
 VALUES ($1, $2, $3)
 `
 
 type InsertRankingParams struct {
-	Owner      string
-	PlayerName string
-	Rank       int32
+	Owner    string
+	PlayerID int64
+	Rank     int32
 }
 
 func (q *Queries) InsertRanking(ctx context.Context, arg InsertRankingParams) error {
-	_, err := q.db.Exec(ctx, insertRanking, arg.Owner, arg.PlayerName, arg.Rank)
+	_, err := q.db.Exec(ctx, insertRanking, arg.Owner, arg.PlayerID, arg.Rank)
 	return err
 }
 
 const listRankings = `-- name: ListRankings :many
-SELECT owner, player_name, rank
-FROM rankings
-ORDER BY owner, rank
+SELECT r.owner, p.id AS player_id, p.player_name, p.position, p.team, r.rank
+FROM rankings r
+JOIN players p ON p.id = r.player_id
+ORDER BY r.owner, r.rank
 `
 
 type ListRankingsRow struct {
 	Owner      string
+	PlayerID   int64
 	PlayerName string
+	Position   string
+	Team       string
 	Rank       int32
 }
 
@@ -71,7 +75,14 @@ func (q *Queries) ListRankings(ctx context.Context) ([]ListRankingsRow, error) {
 	var items []ListRankingsRow
 	for rows.Next() {
 		var i ListRankingsRow
-		if err := rows.Scan(&i.Owner, &i.PlayerName, &i.Rank); err != nil {
+		if err := rows.Scan(
+			&i.Owner,
+			&i.PlayerID,
+			&i.PlayerName,
+			&i.Position,
+			&i.Team,
+			&i.Rank,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -83,16 +94,20 @@ func (q *Queries) ListRankings(ctx context.Context) ([]ListRankingsRow, error) {
 }
 
 const listRankingsByOwnerForUpdate = `-- name: ListRankingsByOwnerForUpdate :many
-SELECT owner, player_name, rank
-FROM rankings
-WHERE owner = $1
-ORDER BY rank
+SELECT r.owner, p.id AS player_id, p.player_name, p.position, p.team, r.rank
+FROM rankings r
+JOIN players p ON p.id = r.player_id
+WHERE r.owner = $1
+ORDER BY r.rank
 FOR UPDATE
 `
 
 type ListRankingsByOwnerForUpdateRow struct {
 	Owner      string
+	PlayerID   int64
 	PlayerName string
+	Position   string
+	Team       string
 	Rank       int32
 }
 
@@ -105,7 +120,14 @@ func (q *Queries) ListRankingsByOwnerForUpdate(ctx context.Context, owner string
 	var items []ListRankingsByOwnerForUpdateRow
 	for rows.Next() {
 		var i ListRankingsByOwnerForUpdateRow
-		if err := rows.Scan(&i.Owner, &i.PlayerName, &i.Rank); err != nil {
+		if err := rows.Scan(
+			&i.Owner,
+			&i.PlayerID,
+			&i.PlayerName,
+			&i.Position,
+			&i.Team,
+			&i.Rank,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -119,16 +141,16 @@ func (q *Queries) ListRankingsByOwnerForUpdate(ctx context.Context, owner string
 const updateRankingRank = `-- name: UpdateRankingRank :exec
 UPDATE rankings
 SET rank = $3
-WHERE owner = $1 AND player_name = $2
+WHERE owner = $1 AND player_id = $2
 `
 
 type UpdateRankingRankParams struct {
-	Owner      string
-	PlayerName string
-	Rank       int32
+	Owner    string
+	PlayerID int64
+	Rank     int32
 }
 
 func (q *Queries) UpdateRankingRank(ctx context.Context, arg UpdateRankingRankParams) error {
-	_, err := q.db.Exec(ctx, updateRankingRank, arg.Owner, arg.PlayerName, arg.Rank)
+	_, err := q.db.Exec(ctx, updateRankingRank, arg.Owner, arg.PlayerID, arg.Rank)
 	return err
 }
