@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/ethandilley/rankings/internal/db"
+	"github.com/ethandilley/rankings/internal/server/auth"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -40,18 +41,35 @@ var (
 type RankingsService struct {
 	conn *pgx.Conn
 	q    *db.Queries
+	auth *auth.AuthService
 }
 
-func NewRankingsService(conn *pgx.Conn) *RankingsService {
-	return &RankingsService{conn: conn, q: db.New(conn)}
+func NewRankingsService(conn *pgx.Conn, authService *auth.AuthService) *RankingsService {
+	return &RankingsService{conn: conn, q: db.New(conn), auth: authService}
 }
 
 func (h *RankingsService) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /rankings", h.getRankings)
-	mux.HandleFunc("POST /rankings", h.postRankings)
-	mux.HandleFunc("PATCH /rankings/{owner}/move", h.moveRanking)
-	mux.HandleFunc("POST /rankings/{owner}/players", h.addPlayer)
-	mux.HandleFunc("DELETE /rankings/{owner}/players/{player}", h.removePlayer)
+	mux.HandleFunc("GET /rankings", h.auth.RequireAuth(h.getRankings))
+	mux.HandleFunc("POST /rankings", h.auth.RequireAuth(h.postRankings))
+	mux.HandleFunc("PATCH /rankings/{owner}/move", h.auth.RequireAuth(h.moveRanking))
+	mux.HandleFunc("POST /rankings/{owner}/players", h.auth.RequireAuth(h.addPlayer))
+	mux.HandleFunc("DELETE /rankings/{owner}/players/{player}", h.auth.RequireAuth(h.removePlayer))
+}
+
+func (h *RankingsService) requireOwner(w http.ResponseWriter, r *http.Request) (string, bool) {
+	user, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return "", false
+	}
+
+	owner := r.PathValue("owner")
+	if owner != user.Username {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return "", false
+	}
+
+	return owner, true
 }
 
 // ---------------------------------------------------------------------------
@@ -95,14 +113,20 @@ func (h *RankingsService) getRankings(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func (h *RankingsService) postRankings(w http.ResponseWriter, r *http.Request) {
+	user, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var in OwnerRanking
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
 
-	if in.Owner == "" {
-		http.Error(w, "owner is required", http.StatusBadRequest)
+	if in.Owner != user.Username {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	if len(in.Rankings) == 0 {
@@ -151,9 +175,8 @@ func (h *RankingsService) replaceRankings(ctx context.Context, in OwnerRanking) 
 // ---------------------------------------------------------------------------
 
 func (h *RankingsService) moveRanking(w http.ResponseWriter, r *http.Request) {
-	owner := r.PathValue("owner")
-	if owner == "" {
-		http.Error(w, "owner is required", http.StatusBadRequest)
+	owner, ok := h.requireOwner(w, r)
+	if !ok {
 		return
 	}
 
@@ -214,9 +237,8 @@ func (h *RankingsService) movePlayer(ctx context.Context, owner, playerName stri
 // ---------------------------------------------------------------------------
 
 func (h *RankingsService) addPlayer(w http.ResponseWriter, r *http.Request) {
-	owner := r.PathValue("owner")
-	if owner == "" {
-		http.Error(w, "owner is required", http.StatusBadRequest)
+	owner, ok := h.requireOwner(w, r)
+	if !ok {
 		return
 	}
 
@@ -290,10 +312,13 @@ func (h *RankingsService) addPlayerToRankings(ctx context.Context, owner, player
 // ---------------------------------------------------------------------------
 
 func (h *RankingsService) removePlayer(w http.ResponseWriter, r *http.Request) {
-	owner := r.PathValue("owner")
+	owner, ok := h.requireOwner(w, r)
+	if !ok {
+		return
+	}
 	player := r.PathValue("player")
-	if owner == "" || player == "" {
-		http.Error(w, "owner and player are required", http.StatusBadRequest)
+	if player == "" {
+		http.Error(w, "player is required", http.StatusBadRequest)
 		return
 	}
 

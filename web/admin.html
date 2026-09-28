@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rankings Admin</title>
+<style>
+  :root {
+    --bg: #07111d;
+    --panel: rgba(8, 24, 39, 0.94);
+    --line: rgba(148, 184, 219, 0.16);
+    --text: #eaf4ff;
+    --muted: #8fa8bd;
+    --accent: #7cc7ff;
+    --danger: #ff8787;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(circle at top left, rgba(32, 93, 158, 0.24), transparent 32%),
+      linear-gradient(180deg, #04101b 0%, var(--bg) 44%, #050b12 100%);
+    color: var(--text);
+    font-family: "Segoe UI", sans-serif;
+  }
+
+  .page {
+    width: min(1080px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 24px 0 44px;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: rgba(7, 22, 37, 0.86);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+  }
+
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .brand .logo {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+  }
+
+  .brand .subtitle {
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .status-area {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .dot.online { background: #62d26f; }
+  .dot.offline { background: #ff7b7b; }
+
+  .status {
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .link-btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .link-btn:hover { text-decoration: underline; }
+
+  .content {
+    display: grid;
+    gap: 18px;
+    margin-top: 18px;
+  }
+
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: var(--panel);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.2);
+    padding: 18px;
+  }
+
+  .card h2 {
+    margin: 0 0 14px;
+    font-size: 18px;
+    letter-spacing: 0.02em;
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 12px;
+    align-items: end;
+  }
+
+  .form-grid label {
+    display: grid;
+    gap: 7px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .field-username { grid-column: span 4; }
+  .field-display { grid-column: span 4; }
+  .field-password { grid-column: span 3; }
+  .field-admin { grid-column: span 1; }
+
+  input[type="text"],
+  input[type="password"] {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(4, 15, 26, 0.9);
+    color: var(--text);
+    font: inherit;
+    padding: 11px 12px;
+    outline: none;
+  }
+
+  input:focus {
+    border-color: rgba(124, 199, 255, 0.42);
+    box-shadow: 0 0 0 3px rgba(124, 199, 255, 0.08);
+  }
+
+  .checkbox {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding-bottom: 14px;
+  }
+
+  .primary {
+    grid-column: span 12;
+    border: 1px solid rgba(124, 199, 255, 0.24);
+    border-radius: 12px;
+    background: rgba(124, 199, 255, 0.12);
+    color: var(--text);
+    font: inherit;
+    font-weight: 700;
+    padding: 11px 14px;
+    cursor: pointer;
+  }
+
+  .primary:hover { background: rgba(124, 199, 255, 0.18); }
+
+  .message {
+    margin: 12px 0 0;
+    min-height: 18px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 560px;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 12px 10px;
+    border-bottom: 1px solid rgba(148, 184, 219, 0.12);
+    vertical-align: middle;
+  }
+
+  th {
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 12px;
+    color: var(--muted);
+    background: rgba(148, 184, 219, 0.08);
+  }
+
+  .badge.admin {
+    color: #b9ecff;
+    background: rgba(124, 199, 255, 0.12);
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .action {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: rgba(10, 31, 50, 0.82);
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    padding: 7px 10px;
+    cursor: pointer;
+  }
+
+  .action:hover {
+    border-color: rgba(124, 199, 255, 0.32);
+    background: rgba(124, 199, 255, 0.1);
+  }
+
+  .action.danger:hover {
+    border-color: rgba(255, 135, 135, 0.38);
+    background: rgba(255, 135, 135, 0.1);
+    color: var(--danger);
+  }
+
+  @media (max-width: 760px) {
+    .topbar {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .form-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .field-username,
+    .field-display,
+    .field-password,
+    .field-admin,
+    .primary {
+      grid-column: auto;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">Rankings</span>
+      <span class="subtitle">admin</span>
+    </div>
+    <div class="status-area">
+      <span id="statusDot" class="dot offline"></span>
+      <span id="statusText" class="status">loading</span>
+      <button id="boardBtn" class="link-btn" type="button">board</button>
+      <button id="logoutBtn" class="link-btn" type="button">log out</button>
+    </div>
+  </header>
+
+  <main class="content">
+    <section class="card">
+      <h2>Add user</h2>
+      <form id="addUserForm" class="form-grid">
+        <label class="field-username">
+          username
+          <input id="newUsername" type="text" autocomplete="off" required />
+        </label>
+        <label class="field-display">
+          display name
+          <input id="newDisplayName" type="text" autocomplete="off" required />
+        </label>
+        <label class="field-password">
+          password
+          <input id="newPassword" type="password" autocomplete="new-password" required />
+        </label>
+        <label class="field-admin checkbox">
+          <input id="newAdmin" type="checkbox" />
+          admin
+        </label>
+        <button class="primary" type="submit">add user</button>
+      </form>
+      <p id="formMessage" class="message"></p>
+    </section>
+
+    <section class="card">
+      <h2>Users</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>username</th>
+              <th>display name</th>
+              <th>role</th>
+              <th>actions</th>
+            </tr>
+          </thead>
+          <tbody id="userRows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+  const DEFAULT_API_BASE = (() => {
+    if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+      return window.location.origin;
+    }
+    return 'http://localhost:8080';
+  })();
+  const apiBase = localStorage.getItem('rankings_api_base') || DEFAULT_API_BASE;
+
+  const statusDot = document.getElementById('statusDot');
+  const statusText = document.getElementById('statusText');
+  const boardBtn = document.getElementById('boardBtn');
+  const logoutBtn = document.getElementById('logoutBtn');
+  const addUserForm = document.getElementById('addUserForm');
+  const newUsername = document.getElementById('newUsername');
+  const newDisplayName = document.getElementById('newDisplayName');
+  const newPassword = document.getElementById('newPassword');
+  const newAdmin = document.getElementById('newAdmin');
+  const formMessage = document.getElementById('formMessage');
+  const userRows = document.getElementById('userRows');
+
+  let currentUser = null;
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  async function apiRequest(path, options = {}) {
+    const res = await fetch(apiBase + path, {
+      credentials: 'include',
+      ...options,
+      headers: {
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...options.headers,
+      },
+    });
+
+    if (res.status === 401) {
+      window.location.replace('login.html');
+      throw new Error('unauthorized');
+    }
+
+    const contentType = res.headers.get('content-type') || '';
+    let body = null;
+    if (res.status !== 204 && contentType.includes('application/json')) {
+      body = await res.json();
+    }
+
+    if (!res.ok) {
+      throw new Error(body?.error || body?.message || res.statusText);
+    }
+
+    return body;
+  }
+
+  async function loadUsers() {
+    const users = await apiRequest('/admin/users');
+    renderUsers(users);
+  }
+
+  function renderUsers(users) {
+    userRows.innerHTML = users.map((user) => {
+      const username = escapeHtml(user.username);
+      const adminClass = user.is_admin ? 'admin' : '';
+      const adminLabel = user.is_admin ? 'admin' : 'member';
+      const adminAction = user.is_admin ? 'remove admin' : 'make admin';
+      return `
+        <tr>
+          <td>${username}</td>
+          <td>${escapeHtml(user.display_name)}</td>
+          <td><span class="badge ${adminClass}">${adminLabel}</span></td>
+          <td>
+            <div class="actions">
+              <button type="button" class="action" data-action="password" data-username="${username}">password</button>
+              <button type="button" class="action" data-action="admin" data-username="${username}" data-admin="${user.is_admin}">${adminAction}</button>
+              <button type="button" class="action danger" data-action="delete" data-username="${username}">delete</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  function showForbidden() {
+    statusDot.className = 'dot offline';
+    statusText.textContent = 'forbidden';
+    formMessage.textContent = 'admin access required';
+    userRows.innerHTML = '<tr><td colspan="4">forbidden</td></tr>';
+  }
+
+  async function loadAuth() {
+    try {
+      currentUser = await apiRequest('/auth/me');
+      statusDot.className = 'dot online';
+      statusText.textContent = currentUser.display_name || currentUser.username;
+
+      if (!currentUser.is_admin) {
+        showForbidden();
+        return;
+      }
+
+      await loadUsers();
+    } catch (err) {
+      if (err.message === 'unauthorized') {
+        return;
+      }
+      statusDot.className = 'dot offline';
+      statusText.textContent = 'offline';
+      formMessage.textContent = err.message;
+    }
+  }
+
+  boardBtn.addEventListener('click', () => {
+    window.location.replace('index.html');
+  });
+
+  logoutBtn.addEventListener('click', async () => {
+    try {
+      await apiRequest('/auth/logout', { method: 'POST' });
+    } finally {
+      window.location.replace('login.html');
+    }
+  });
+
+  addUserForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    formMessage.textContent = 'creating...';
+
+    try {
+      await apiRequest('/admin/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: newUsername.value,
+          display_name: newDisplayName.value,
+          password: newPassword.value,
+          is_admin: newAdmin.checked,
+        }),
+      });
+
+      addUserForm.reset();
+      formMessage.textContent = 'User created.';
+      await loadUsers();
+    } catch (err) {
+      formMessage.textContent = err.message;
+    }
+  });
+
+  userRows.addEventListener('click', async (event) => {
+    const button = event.target.closest('button[data-action]');
+    if (!button) {
+      return;
+    }
+
+    const action = button.dataset.action;
+    const username = button.dataset.username;
+
+    if (action === 'password') {
+      const newPwd = window.prompt(`New password for ${username}:`);
+      if (!newPwd) {
+        return;
+      }
+
+      try {
+        await apiRequest(`/admin/users/${encodeURIComponent(username)}/password`, {
+          method: 'POST',
+          body: JSON.stringify({ new_password: newPwd }),
+        });
+        await loadUsers();
+      } catch (err) {
+        window.alert(err.message);
+      }
+      return;
+    }
+
+    if (action === 'admin') {
+      const makeAdmin = button.dataset.admin === 'false';
+
+      try {
+        await apiRequest(`/admin/users/${encodeURIComponent(username)}/admin`, {
+          method: 'PATCH',
+          body: JSON.stringify({ is_admin: makeAdmin }),
+        });
+        await loadUsers();
+      } catch (err) {
+        window.alert(err.message);
+      }
+      return;
+    }
+
+    if (action === 'delete') {
+      if (!window.confirm(`Delete ${username}?`)) {
+        return;
+      }
+
+      try {
+        await apiRequest(`/admin/users/${encodeURIComponent(username)}`, {
+          method: 'DELETE',
+        });
+        await loadUsers();
+      } catch (err) {
+        window.alert(err.message);
+      }
+    }
+  });
+
+  loadAuth();
+</script>
+</body>
+</html>

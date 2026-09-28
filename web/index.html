@@ -489,7 +489,10 @@
   <div class="header-right">
     <span class="status-dot" id="statusDot"></span>
     <span class="status-text" id="statusText">connecting…</span>
+    <span class="status-text" id="userName"></span>
+    <button class="link-btn" id="logoutBtn" type="button" hidden>log out</button>
     <button class="link-btn" id="settingsBtn" type="button">connection</button>
+    <button class="link-btn" id="adminBtn" type="button" hidden>admin</button>
   </div>
 </header>
 
@@ -502,21 +505,18 @@
       <li class="skeleton"></li>
     </ul>
 
-    <button class="btn secondary small" id="seedDefaultsBtn" type="button" style="width:100%; margin-bottom:14px;">Seed all 12 teams</button>
-    <p class="seed-hint">Creates a board for each of the 12 league teams, all ranked with the full 180-player draft board in overall pick order. Skips any team that already has a board.</p>
+    <button class="btn secondary small" id="seedDefaultsBtn" type="button" style="width:100%; margin-bottom:14px;">Seed my board</button>
+    <p class="seed-hint">Creates your own board ranked with the full 180-player draft board in overall pick order. If your board already exists, it won’t be touched.</p>
 
-    <button class="btn new-owner-toggle" id="newOwnerToggle" type="button">+ New owner</button>
+    <button class="btn new-owner-toggle" id="newOwnerToggle" type="button">+ New board</button>
     <form class="new-owner-form hidden" id="newOwnerForm">
-      <div class="field">
-        <label for="newOwnerName">Owner name</label>
-        <input type="text" id="newOwnerName" placeholder="e.g. Alicia" autocomplete="off">
-      </div>
+      <p class="seed-hint">Creates your own board. You’re signed in as <span id="newBoardUser"></span>.</p>
       <div class="field">
         <label for="newOwnerFirstPlayer">First player</label>
         <input type="text" id="newOwnerFirstPlayer" placeholder="e.g. Jordan Reeves" autocomplete="off">
       </div>
       <div style="display:flex; gap:8px;">
-        <button type="submit" class="btn small">Create</button>
+        <button type="submit" class="btn small">Create board</button>
         <button type="button" class="btn secondary small" id="cancelNewOwner">Cancel</button>
       </div>
     </form>
@@ -552,24 +552,6 @@
 <script>
 (function () {
   'use strict';
-
-  // Draft-order defaults: each league team's picks, in the order they were
-  // drafted (round 1 pick -> round 15 pick). Used to seed a starting board
-  // for a team that doesn't have one yet.
-  const LEAGUE_TEAMS = [
-  "Whats up my Nabers",
-  "Krazy-Eyez Killa",
-  "Threepeat is embarassing 💍💍💍",
-  "Two Girls One Kittle",
-  "Nacua Matata",
-  "Dat bih 💨",
-  "don't go breakin my dart",
-  "Trade King",
-  "Denver on 3",
-  "Gay Flowers",
-  "Drake Maye Lover",
-  "Bark for me 🐶"
-];
 
   // The full draft board, all 180 picks in the order they were selected
   // (overall pick order, not per-team). Every team starts ranked this way.
@@ -756,13 +738,14 @@
   "Jets D/ST (NYJ, D/ST)"
 ];
 
-  const DEFAULT_API_BASE = 'http://localhost:8080';
+  const DEFAULT_API_BASE = (window.location.protocol === 'http:' || window.location.protocol === 'https:') ? window.location.origin : 'http://localhost:8080';
   let API_BASE = localStorage.getItem('rankings_api_base') || DEFAULT_API_BASE;
 
   /** @type {{owner: string, rankings: {player_name: string, rank: number}[]}[]} */
   let owners = [];
   let selectedOwner = null;
   let loading = true;
+  let currentUser = null;
 
   const el = {
     statusDot: document.getElementById('statusDot'),
@@ -779,8 +762,11 @@
     newOwnerToggle: document.getElementById('newOwnerToggle'),
     newOwnerForm: document.getElementById('newOwnerForm'),
     cancelNewOwner: document.getElementById('cancelNewOwner'),
-    newOwnerName: document.getElementById('newOwnerName'),
     newOwnerFirstPlayer: document.getElementById('newOwnerFirstPlayer'),
+    newBoardUser: document.getElementById('newBoardUser'),
+    userName: document.getElementById('userName'),
+    logoutBtn: document.getElementById('logoutBtn'),
+    adminBtn: document.getElementById('adminBtn'),
   };
 
   // ---------------------------------------------------------------------
@@ -802,6 +788,8 @@
     const trimmed = (bodyText || '').trim();
     switch (status) {
       case 400: return trimmed || 'That request was missing something required.';
+      case 401: return 'You need to log in first.';
+      case 403: return 'You can only edit your own board.';
       case 404: return 'Owner or player not found — the board may be out of date.';
       case 409: return 'That player is already on this owner\u2019s board.';
       case 500: return 'Something went wrong on the server. Try again.';
@@ -815,10 +803,15 @@
   async function apiRequest(path, options) {
     const res = await fetch(API_BASE.replace(/\/$/, '') + path, Object.assign({
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
     }, options));
 
     if (!res.ok) {
       const bodyText = await res.text().catch(() => '');
+      if (res.status === 401 && !path.startsWith('/auth/')) {
+        window.location.replace('login.html');
+        return new Promise(() => {});
+      }
       const err = new Error(friendlyError(res.status, bodyText));
       err.status = res.status;
       throw err;
@@ -829,6 +822,8 @@
   }
 
   const api = {
+    me: () => apiRequest('/auth/me'),
+    logout: () => apiRequest('/auth/logout', { method: 'POST' }),
     getRankings: () => apiRequest('/rankings'),
     replaceRankings: (owner, rankings) => apiRequest('/rankings', {
       method: 'POST',
@@ -871,7 +866,7 @@
     if (owners.length === 0) {
       const li = document.createElement('li');
       li.className = 'empty-owners';
-      li.textContent = 'No owners yet. Create the first one below.';
+      li.textContent = 'No boards yet. Create yours below.';
       el.ownerList.appendChild(li);
       return;
     }
@@ -884,7 +879,7 @@
 
       const name = document.createElement('span');
       name.className = 'owner-name';
-      name.textContent = o.owner;
+      name.textContent = currentUser && o.owner === currentUser.username ? o.owner + ' (you)' : o.owner;
 
       const count = document.createElement('span');
       count.className = 'owner-count';
@@ -929,13 +924,14 @@
     }
 
     const ownerData = findOwner(selectedOwner);
+    const canEdit = Boolean(currentUser && ownerData.owner === currentUser.username);
 
     const header = document.createElement('div');
     header.className = 'board-header';
     header.innerHTML = `
       <div>
         <h2 class="board-title">${escapeHtml(ownerData.owner)}</h2>
-        <div class="board-sub">${ownerData.rankings.length} player${ownerData.rankings.length === 1 ? '' : 's'} ranked</div>
+        <div class="board-sub">${ownerData.rankings.length} player${ownerData.rankings.length === 1 ? '' : 's'} ranked${canEdit ? '' : ' · read-only'}</div>
       </div>
     `;
     el.boardContent.appendChild(header);
@@ -966,21 +962,23 @@
         const actions = document.createElement('span');
         actions.className = 'rank-actions';
 
-        const upBtn = iconButton('\u2191', () => moveOnePosition(ownerData.owner, p, -1));
-        upBtn.title = 'Move up';
-        upBtn.disabled = idx === 0;
+        if (canEdit) {
+          const upBtn = iconButton('\u2191', () => moveOnePosition(ownerData.owner, p, -1));
+          upBtn.title = 'Move up';
+          upBtn.disabled = idx === 0;
 
-        const downBtn = iconButton('\u2193', () => moveOnePosition(ownerData.owner, p, 1));
-        downBtn.title = 'Move down';
-        downBtn.disabled = idx === sorted.length - 1;
+          const downBtn = iconButton('\u2193', () => moveOnePosition(ownerData.owner, p, 1));
+          downBtn.title = 'Move down';
+          downBtn.disabled = idx === sorted.length - 1;
 
-        const delBtn = iconButton('\u00d7', () => removePlayer(ownerData.owner, p.player_name));
-        delBtn.title = 'Remove player';
-        delBtn.classList.add('danger');
+          const delBtn = iconButton('\u00d7', () => removePlayer(ownerData.owner, p.player_name));
+          delBtn.title = 'Remove player';
+          delBtn.classList.add('danger');
 
-        actions.appendChild(upBtn);
-        actions.appendChild(downBtn);
-        actions.appendChild(delBtn);
+          actions.appendChild(upBtn);
+          actions.appendChild(downBtn);
+          actions.appendChild(delBtn);
+        }
 
         row.appendChild(num);
         row.appendChild(name);
@@ -990,7 +988,20 @@
     }
 
     el.boardContent.appendChild(list);
-    el.boardContent.appendChild(buildAddPlayerForm(ownerData));
+
+    if (canEdit) {
+      el.boardContent.appendChild(buildAddPlayerForm(ownerData));
+    } else {
+      const note = document.createElement('div');
+      note.className = 'add-player-form';
+      note.innerHTML = `
+        <div class="field grow">
+          <label>Read-only board</label>
+          <div class="board-sub">This board belongs to ${escapeHtml(ownerData.owner)}. Only the board owner can edit it.</div>
+        </div>
+      `;
+      el.boardContent.appendChild(note);
+    }
   }
 
   function iconButton(label, onClick) {
@@ -1086,61 +1097,53 @@
   }
 
   // ---------------------------------------------------------------------
-  // Seed all 12 teams from draft order
+  // Seed the current user's board from draft order
   // ---------------------------------------------------------------------
   el.seedDefaultsBtn.addEventListener('click', async () => {
-    const missing = LEAGUE_TEAMS.filter((name) => !findOwner(name));
-
-    if (missing.length === 0) {
-      toast('All 12 teams already have a board — nothing to seed.', 'success');
+    if (!currentUser) {
+      window.location.replace('login.html');
       return;
     }
 
-    const already = LEAGUE_TEAMS.length - missing.length;
-    const confirmMsg = already > 0
-      ? `Create a full draft-order board (${DRAFT_ORDER_DEFAULT.length} players) for ${missing.length} team${missing.length === 1 ? '' : 's'}? ${already} team${already === 1 ? '' : 's'} already ${already === 1 ? 'has' : 'have'} a board and won\u2019t be touched.`
-      : `Create a full draft-order board (${DRAFT_ORDER_DEFAULT.length} players) for all ${missing.length} teams?`;
+    const owner = currentUser.username;
+    if (findOwner(owner)) {
+      toast('Your board already exists — it won\u2019t be touched.', 'success');
+      return;
+    }
+
+    const confirmMsg = `Create a full draft-order board (${DRAFT_ORDER_DEFAULT.length} players) for ${owner}?`;
     if (!confirm(confirmMsg)) return;
 
     el.seedDefaultsBtn.disabled = true;
-    let created = 0;
-    let failed = 0;
-
-    const rankings = DRAFT_ORDER_DEFAULT.map((playerName, i) => ({
-      player_name: playerName,
-      rank: i + 1,
-    }));
-
-    for (const name of missing) {
-      try {
-        const result = await api.replaceRankings(name, rankings);
-        owners.push(result);
-        created++;
-      } catch (err) {
-        failed++;
-      }
-    }
-
-    renderOwnerList();
-    if (!selectedOwner && owners.length > 0) selectOwner(owners[0].owner);
-    else renderBoard();
-
-    el.seedDefaultsBtn.disabled = false;
-
-    if (failed === 0) {
-      toast(`Seeded ${created} team${created === 1 ? '' : 's'} with the full draft order.`, 'success');
-    } else {
-      toast(`Seeded ${created} team${created === 1 ? '' : 's'}, ${failed} failed \u2014 check your connection.`, 'error');
+    try {
+      const rankings = DRAFT_ORDER_DEFAULT.map((playerName, i) => ({
+        player_name: playerName,
+        rank: i + 1,
+      }));
+      const result = await api.replaceRankings(owner, rankings);
+      owners.push(result);
+      renderOwnerList();
+      selectOwner(owner);
+      toast(`Seeded your board with ${DRAFT_ORDER_DEFAULT.length} players.`, 'success');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      el.seedDefaultsBtn.disabled = false;
     }
   });
 
   // ---------------------------------------------------------------------
-  // New owner flow
+  // New board flow
   // ---------------------------------------------------------------------
   el.newOwnerToggle.addEventListener('click', () => {
+    if (!currentUser) {
+      window.location.replace('login.html');
+      return;
+    }
+    el.newBoardUser.textContent = currentUser.username;
     el.newOwnerForm.classList.remove('hidden');
     el.newOwnerToggle.classList.add('hidden');
-    el.newOwnerName.focus();
+    el.newOwnerFirstPlayer.focus();
   });
 
   el.cancelNewOwner.addEventListener('click', () => {
@@ -1151,26 +1154,30 @@
 
   el.newOwnerForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const name = el.newOwnerName.value.trim();
-    const firstPlayer = el.newOwnerFirstPlayer.value.trim();
-    if (!name || !firstPlayer) {
-      toast('An owner needs a name and at least one player to start.', 'error');
+    if (!currentUser) {
+      window.location.replace('login.html');
       return;
     }
-    if (findOwner(name)) {
-      toast('That owner already exists — select them from the list.', 'error');
+    const owner = currentUser.username;
+    const firstPlayer = el.newOwnerFirstPlayer.value.trim();
+    if (!firstPlayer) {
+      toast('Enter at least one player to start your board.', 'error');
+      return;
+    }
+    if (findOwner(owner)) {
+      toast('Your board already exists — select it from the list.', 'error');
       return;
     }
     const submitBtn = el.newOwnerForm.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
     try {
-      const created = await api.replaceRankings(name, [{ player_name: firstPlayer, rank: 1 }]);
+      const created = await api.replaceRankings(owner, [{ player_name: firstPlayer, rank: 1 }]);
       owners.push(created);
       el.newOwnerForm.reset();
       el.newOwnerForm.classList.add('hidden');
       el.newOwnerToggle.classList.remove('hidden');
       selectOwner(created.owner);
-      toast(name + ' is on the board.', 'success');
+      toast('Your board is ready.', 'success');
     } catch (err) {
       toast(err.message, 'error');
     } finally {
@@ -1196,7 +1203,7 @@
   });
 
   // ---------------------------------------------------------------------
-  // Initial load
+  // Rankings load
   // ---------------------------------------------------------------------
   async function loadRankings() {
     loading = true;
@@ -1209,7 +1216,11 @@
       loading = false;
       setStatus('ok', API_BASE);
       if (selectedOwner && !findOwner(selectedOwner)) selectedOwner = null;
-      if (!selectedOwner && owners.length > 0) selectedOwner = owners[0].owner;
+      if (currentUser && findOwner(currentUser.username)) {
+        selectedOwner = currentUser.username;
+      } else if (!selectedOwner && owners.length > 0) {
+        selectedOwner = owners[0].owner;
+      }
       renderOwnerList();
       renderBoard();
     } catch (err) {
@@ -1222,7 +1233,48 @@
     }
   }
 
-  loadRankings();
+  async function loadAuth() {
+    try {
+      currentUser = await api.me();
+      el.userName.textContent = currentUser.display_name || currentUser.username;
+      el.newBoardUser.textContent = currentUser.username;
+      el.logoutBtn.hidden = false;
+      el.adminBtn.hidden = !currentUser.is_admin;
+      return true;
+    } catch (err) {
+      if (err.status === 401) {
+        window.location.replace('login.html');
+        return false;
+      }
+      loading = false;
+      owners = [];
+      setStatus('bad', 'auth error');
+      renderOwnerList();
+      renderBoard();
+      toast(err.message, 'error');
+      return false;
+    }
+  }
+
+  el.logoutBtn.addEventListener('click', async () => {
+    el.logoutBtn.disabled = true;
+    try {
+      await api.logout();
+    } catch (err) {}
+    window.location.replace('login.html');
+  });
+
+  el.adminBtn.addEventListener('click', () => {
+    window.location.replace('admin.html');
+  });
+
+  async function init() {
+    const authed = await loadAuth();
+    if (!authed) return;
+    await loadRankings();
+  }
+
+  init();
 })();
 </script>
 </body>

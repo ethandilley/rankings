@@ -6,3 +6,8 @@
 # Env files
 .env
 .env.local
+
+# Scratch files
+/tmp
+/tmp.json
+/prompts/

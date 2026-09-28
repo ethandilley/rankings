@@ -8,10 +8,36 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Player struct {
+	ID         int64
+	Owner      string
+	PlayerName string
+	Position   string
+	Team       string
+	DraftedAt  int32
+	CreatedAt  pgtype.Timestamptz
+}
+
 type Ranking struct {
 	ID         int64
 	Owner      string
 	PlayerName string
 	Rank       int32
 	CreatedAt  pgtype.Timestamptz
+}
+
+type Session struct {
+	Token     string
+	UserID    int64
+	CreatedAt pgtype.Timestamptz
+	ExpiresAt pgtype.Timestamptz
+}
+
+type User struct {
+	ID           int64
+	Username     string
+	DisplayName  string
+	PasswordHash string
+	IsAdmin      bool
+	CreatedAt    pgtype.Timestamptz
 }

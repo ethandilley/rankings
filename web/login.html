@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login · Rankings</title>
+<style>
+:root {
+  --bg: #121212;
+  --bg-raised: #1a1a1a;
+  --bg-hover: #232323;
+  --text: #e8e8e8;
+  --text-soft: #9a9a9a;
+  --line: #2c2c2c;
+  --accent: #5b9dff;
+  --accent-deep: #4986e6;
+  --danger: #e0554f;
+  --danger-bg: #3a2321;
+  --success: #4caf7d;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  -webkit-font-smoothing: antialiased;
+}
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 32px 28px 28px;
+}
+.wordmark {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  text-align: center;
+  margin-bottom: 8px;
+}
+.wordmark span { color: var(--accent); }
+.subtitle {
+  color: var(--text-soft);
+  font-size: 12px;
+  text-align: center;
+  margin-bottom: 24px;
+}
+.field { margin-bottom: 16px; }
+label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  margin-bottom: 6px;
+}
+input[type="text"],
+input[type="password"] {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color .15s;
+}
+input[type="text"]:focus,
+input[type="password"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.login-btn {
+  width: 100%;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 11px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background .15s;
+}
+.login-btn:hover:not(:disabled) { background: var(--accent-deep); }
+.login-btn:disabled { opacity: .5; cursor: not-allowed; }
+.status {
+  font-size: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  display: none;
+  word-break: break-word;
+}
+.status.error { display: block; color: var(--danger); background: var(--danger-bg); border: 1px solid var(--danger); }
+.status.info { display: block; color: var(--text-soft); background: var(--bg); border: 1px solid var(--line); }
+.status.success { display: block; color: var(--success); background: #1e2b23; border: 1px solid var(--success); }
+details.connection {
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+details.connection summary {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+details.connection summary::before {
+  content: "▸ ";
+  color: var(--text-soft);
+}
+details.connection[open] summary::before { content: "▾ "; }
+.connection-body { padding-top: 12px; }
+.connection-hint {
+  font-size: 11px;
+  color: var(--text-soft);
+  margin-top: 8px;
+  line-height: 1.5;
+}
+</style>
+</head>
+<body>
+
+<div class="login-card">
+  <div class="wordmark">RANK<span>INGS</span></div>
+  <div class="subtitle">Sign in to manage your rankings</div>
+
+  <div id="status" class="status"></div>
+
+  <form id="loginForm">
+    <div class="field">
+      <label for="username">Username</label>
+      <input id="username" type="text" autocomplete="username" autocapitalize="none" required>
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+    </div>
+    <button id="loginBtn" class="login-btn" type="submit">Sign in</button>
+  </form>
+
+  <details class="connection">
+    <summary>Connection</summary>
+    <div class="connection-body">
+      <label for="apiBaseInput">API base URL</label>
+      <input id="apiBaseInput" type="text" placeholder="http://localhost:8080" autocomplete="off" spellcheck="false">
+      <div class="connection-hint">
+        Leave as-is if the API is running on this machine. Changes are saved in this browser only.
+      </div>
+    </div>
+  </details>
+</div>
+
+<script>
+const DEFAULT_API_BASE = (window.location.protocol === 'http:' || window.location.protocol === 'https:') ? window.location.origin : 'http://localhost:8080';
+let API_BASE = localStorage.getItem('rankings_api_base') || DEFAULT_API_BASE;
+
+const el = {};
+['status', 'loginForm', 'username', 'password', 'loginBtn', 'apiBaseInput'].forEach(id => el[id] = document.getElementById(id));
+
+function setStatus(kind, text) {
+  el.status.className = 'status ' + kind;
+  el.status.textContent = text;
+}
+function clearStatus() {
+  el.status.className = 'status';
+  el.status.textContent = '';
+}
+
+function apiURL(path) {
+  return API_BASE.replace(/\/+$/, '') + path;
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(apiURL(path), {
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+
+  let body = null;
+  const text = await res.text();
+  if (text) {
+    try { body = JSON.parse(text); } catch { body = text; }
+  }
+
+  if (!res.ok) {
+    const message = typeof body === 'object' && body !== null && body.error
+      ? body.error
+      : (typeof body === 'string' && body ? body : res.statusText);
+    const err = new Error(message);
+    err.status = res.status;
+    throw err;
+  }
+
+  return body;
+}
+
+function errorMessage(err) {
+  if (err.name === 'TypeError') {
+    return `Cannot reach the API at ${API_BASE.replace(/\/+$/, '')}. Check the connection settings below.`;
+  }
+  if (err.status === 401) return 'Invalid username or password.';
+  if (err.status === 403) return 'This account is not allowed to sign in.';
+  if (err.status === 400) return err.message || 'Username and password are required.';
+  return err.message || 'Login failed.';
+}
+
+async function checkSession() {
+  try {
+    await api('/auth/me');
+    window.location.replace('index.html');
+    return true;
+  } catch (err) {
+    if (err.status === 401) {
+      clearStatus();
+      return false;
+    }
+    if (err.name === 'TypeError') {
+      setStatus('error', `Cannot reach the API at ${API_BASE.replace(/\/+$/, '')}. Check the connection settings below.`);
+      return false;
+    }
+    setStatus('error', errorMessage(err));
+    return false;
+  }
+}
+
+el.loginForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = el.username.value.trim();
+  const password = el.password.value;
+
+  if (!username || !password) {
+    setStatus('error', 'Username and password are required.');
+    return;
+  }
+
+  el.loginBtn.disabled = true;
+  el.loginBtn.textContent = 'Signing in…';
+  clearStatus();
+
+  try {
+    await api('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+    setStatus('success', 'Signed in. Redirecting…');
+    window.location.replace('index.html');
+  } catch (err) {
+    setStatus('error', errorMessage(err));
+    el.password.value = '';
+    el.password.focus();
+  } finally {
+    el.loginBtn.disabled = false;
+    el.loginBtn.textContent = 'Sign in';
+  }
+});
+
+el.apiBaseInput.addEventListener('change', () => {
+  const raw = el.apiBaseInput.value.trim();
+  API_BASE = raw || DEFAULT_API_BASE;
+  if (raw) {
+    localStorage.setItem('rankings_api_base', API_BASE);
+  } else {
+    localStorage.removeItem('rankings_api_base');
+  }
+  checkSession();
+});
+
+(function init() {
+  el.apiBaseInput.value = API_BASE;
+  checkSession().then((alreadyAuthed) => {
+    if (!alreadyAuthed) el.username.focus();
+  });
+})();
+</script>
+
+</body>
+</html>
