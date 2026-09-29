@@ -12,6 +12,7 @@ import (
 	"github.com/ethandilley/rankings/internal/db"
 	"github.com/ethandilley/rankings/internal/server/auth"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type PlayerRanking struct {
@@ -21,6 +22,24 @@ type PlayerRanking struct {
 	Team           string `json:"team"`
 	OverallRank    int    `json:"overall_rank"`
 	PositionalRank int    `json:"positional_rank"`
+	Tier           int    `json:"tier"`
+}
+
+// TierBreak is one "a new tier begins immediately before this rank" marker.
+// Label is empty when the owner left it blank (the UI falls back to "Tier N").
+type TierBreak struct {
+	BeforeRank int    `json:"before_rank"`
+	Label      string `json:"label"`
+}
+
+type TierBreaksResponse struct {
+	Owner    string      `json:"owner"`
+	Position string      `json:"position"`
+	Breaks   []TierBreak `json:"breaks"`
+}
+
+type SetTierBreaksRequest struct {
+	Breaks []TierBreak `json:"breaks"`
 }
 
 type ConsensusEntry struct {
@@ -57,6 +76,10 @@ var (
 	ErrInvalidPosition  = errors.New("unknown position")
 	ErrPositionRequired = errors.New("position is required")
 )
+
+// tierScopeAll is the position-scope value that holds overall-board tier
+// breaks (as opposed to a concrete position code like 'RB').
+const tierScopeAll = "ALL"
 
 // flexPositions are the positions counted as FLEX-eligible. The league
 // starts RB/WR/TE in its flex slots (see NOTES_DECISIONS.md, doc 03).
@@ -102,6 +125,8 @@ func (h *RankingsService) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /rankings/{owner}/move", h.auth.RequireAuth(h.moveRanking))
 	mux.HandleFunc("POST /rankings/{owner}/players", h.auth.RequireAuth(h.addPlayer))
 	mux.HandleFunc("DELETE /rankings/{owner}/players/{player}", h.auth.RequireAuth(h.removePlayer))
+	mux.HandleFunc("GET /tiers/{owner}", h.auth.RequireAuth(h.getTiers))
+	mux.HandleFunc("PUT /tiers/{owner}", h.auth.RequireAuth(h.putTiers))
 }
 
 func (h *RankingsService) requireOwner(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -125,7 +150,7 @@ func (h *RankingsService) requireOwner(w http.ResponseWriter, r *http.Request) (
 // ---------------------------------------------------------------------------
 
 func (h *RankingsService) getRankings(w http.ResponseWriter, r *http.Request) {
-	positions, err := h.resolvePositionFilter(r.Context(), r.URL.Query().Get("position"))
+	kind, positions, err := h.resolvePositionFilter(r.Context(), r.URL.Query().Get("position"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -173,33 +198,70 @@ func (h *RankingsService) getRankings(w http.ResponseWriter, r *http.Request) {
 		out = append(out, *byOwner[owner])
 	}
 
+	h.stampTiers(r.Context(), kind, positions, &out)
+
 	writeJSON(w, http.StatusOK, out)
 }
 
-// resolvePositionFilter turns the raw ?position= value into the concrete list
-// of position strings to filter on (empty = no filter). FLEX expands to the
-// flex-eligible positions; a single position must exist in the players table.
-func (h *RankingsService) resolvePositionFilter(ctx context.Context, raw string) ([]string, error) {
+// stampTiers fills in each row's Tier from that owner's tier breaks. The tier
+// scope follows the applied position filter: no filter -> the 'ALL' scope keyed
+// on overall_rank, one position -> that position's scope keyed on positional_rank,
+// FLEX -> each row's own position scope keyed on its positional_rank.
+//
+// Tier breaks are presentational, so if they can't be loaded we degrade
+// gracefully (every row stays tier 1) instead of failing the whole read.
+func (h *RankingsService) stampTiers(ctx context.Context, kind positionFilterKind, positions []string, out *[]OwnerRanking) {
+	allBreaks, err := h.q.ListTierBreaksAllOwners(ctx)
+	if err != nil {
+		return
+	}
+	byOwnerPos := tierBreaksByOwnerPosition(allBreaks)
+
+	for i := range *out {
+		breaksByPos := byOwnerPos[(*out)[i].Owner]
+		for j := range (*out)[i].Rankings {
+			row := (*out)[i].Rankings[j]
+			var scope string
+			var rank int
+			switch kind {
+			case filterFlex:
+				scope, rank = row.Position, row.PositionalRank
+			case filterExact:
+				scope, rank = positions[0], row.PositionalRank
+			default:
+				scope, rank = tierScopeAll, row.OverallRank
+			}
+			row.Tier = tierForRank(rank, breaksByPos[scope])
+			(*out)[i].Rankings[j] = row
+		}
+	}
+}
+
+// resolvePositionFilter turns the raw ?position= value into the filter kind and
+// the concrete list of position strings to filter on (empty = no filter). FLEX
+// expands to the flex-eligible positions; a single position must exist in the
+// players table (returned in the canonical case stored in the players table).
+func (h *RankingsService) resolvePositionFilter(ctx context.Context, raw string) (positionFilterKind, []string, error) {
 	kind, value, err := parsePositionFilter(raw)
 	if err != nil {
-		return nil, err
+		return kind, nil, err
 	}
 	switch kind {
 	case filterNone:
-		return nil, nil
+		return kind, nil, nil
 	case filterFlex:
-		return flexPositions, nil
+		return kind, flexPositions, nil
 	default:
 		existing, err := h.q.ListDistinctPositions(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load positions: %w", err)
+			return kind, nil, fmt.Errorf("failed to load positions: %w", err)
 		}
 		for _, pos := range existing {
 			if strings.EqualFold(pos, value) {
-				return []string{pos}, nil
+				return kind, []string{pos}, nil
 			}
 		}
-		return nil, ErrInvalidPosition
+		return kind, nil, ErrInvalidPosition
 	}
 }
 
@@ -218,7 +280,7 @@ func (h *RankingsService) getConsensus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	positions, err := h.resolvePositionFilter(r.Context(), raw)
+	_, positions, err := h.resolvePositionFilter(r.Context(), raw)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -535,6 +597,97 @@ func (h *RankingsService) removePlayerFromRankings(ctx context.Context, owner st
 }
 
 // ---------------------------------------------------------------------------
+// GET /tiers/{owner}?position=  and  PUT /tiers/{owner}?position=
+// ---------------------------------------------------------------------------
+
+// getTiers returns the raw tier-break rows for one owner and one position
+// scope ('ALL' or a position code), for the editor UI.
+func (h *RankingsService) getTiers(w http.ResponseWriter, r *http.Request) {
+	owner, ok := h.requireOwner(w, r)
+	if !ok {
+		return
+	}
+	position := strings.ToUpper(r.URL.Query().Get("position"))
+	if position == "" {
+		http.Error(w, ErrPositionRequired.Error(), http.StatusBadRequest)
+		return
+	}
+
+	rows, err := h.q.ListTierBreaks(r.Context(), owner)
+	if err != nil {
+		http.Error(w, "failed to load tier breaks", http.StatusInternalServerError)
+		return
+	}
+
+	breaks := make([]TierBreak, 0)
+	for _, row := range rows {
+		if row.Position != position {
+			continue
+		}
+		breaks = append(breaks, TierBreak{BeforeRank: int(row.BeforeRank), Label: row.Label.String})
+	}
+
+	writeJSON(w, http.StatusOK, TierBreaksResponse{Owner: owner, Position: position, Breaks: breaks})
+}
+
+// putTiers fully replaces an owner's tier breaks for one position scope: the
+// submitted set becomes the entire set for (owner, position). An empty breaks
+// array clears all breaks for that scope.
+func (h *RankingsService) putTiers(w http.ResponseWriter, r *http.Request) {
+	owner, ok := h.requireOwner(w, r)
+	if !ok {
+		return
+	}
+	position := strings.ToUpper(r.URL.Query().Get("position"))
+	if position == "" {
+		http.Error(w, ErrPositionRequired.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var req SetTierBreaksRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if err := validateTierBreaks(req.Breaks); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Breaks == nil {
+		req.Breaks = []TierBreak{}
+	}
+
+	if err := h.replaceTierBreaks(r.Context(), owner, position, req.Breaks); err != nil {
+		http.Error(w, "failed to save tier breaks", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, TierBreaksResponse{Owner: owner, Position: position, Breaks: req.Breaks})
+}
+
+// replaceTierBreaks swaps an owner's tier breaks for one position scope in a
+// single transaction: delete the old set, insert the new one.
+func (h *RankingsService) replaceTierBreaks(ctx context.Context, owner, position string, breaks []TierBreak) error {
+	return h.withTx(ctx, func(q *db.Queries) error {
+		if err := q.DeleteTierBreaksForScope(ctx, db.DeleteTierBreaksForScopeParams{
+			Owner: owner, Position: position,
+		}); err != nil {
+			return fmt.Errorf("delete tier breaks: %w", err)
+		}
+
+		for _, b := range breaks {
+			label := pgtype.Text{String: b.Label, Valid: b.Label != ""}
+			if err := q.InsertTierBreak(ctx, db.InsertTierBreakParams{
+				Owner: owner, Position: position, BeforeRank: int32(b.BeforeRank), Label: label,
+			}); err != nil {
+				return fmt.Errorf("insert tier break at rank %d: %w", b.BeforeRank, err)
+			}
+		}
+		return nil
+	})
+}
+
+// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
@@ -570,7 +723,11 @@ func (h *RankingsService) ownerRanking(ctx context.Context, owner string) (*Owne
 	if err != nil {
 		return nil, err
 	}
-	return &OwnerRanking{Owner: owner, Rankings: toPlayerRankings(rows)}, nil
+	breaks, err := h.allScopeBreaks(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	return &OwnerRanking{Owner: owner, Rankings: toPlayerRankings(rows, breaks)}, nil
 }
 
 // withTx runs fn inside a transaction, committing on success and rolling
@@ -621,7 +778,11 @@ func (h *RankingsService) withOwnerRowsTx(
 		return nil, err
 	}
 
-	return &OwnerRanking{Owner: owner, Rankings: toPlayerRankings(final)}, nil
+	breaks, err := h.allScopeBreaks(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	return &OwnerRanking{Owner: owner, Rankings: toPlayerRankings(final, breaks)}, nil
 }
 
 // applyRankOrder persists rows[i].Rank = i+1 for every row whose stored rank
@@ -674,15 +835,83 @@ func toPlayerRanking(playerID int64, playerName, position, team string, overallR
 // (which may be stale immediately after a mutation in the same tx).
 // positional_rank is derived the same way the SQL window function does it:
 // the 1-based count of how many rows at or before this one share its
-// position.
-func toPlayerRankings(rows []db.ListRankingsByOwnerForUpdateRow) []PlayerRanking {
+// position. allBreaks are the owner's 'ALL'-scope before_ranks (ascending);
+// these rows are always an overall (unfiltered) list, so tier keys on i+1.
+func toPlayerRankings(rows []db.ListRankingsByOwnerForUpdateRow, allBreaks []int) []PlayerRanking {
 	out := make([]PlayerRanking, len(rows))
 	seen := make(map[string]int)
 	for i, row := range rows {
 		seen[row.Position]++
-		out[i] = toPlayerRanking(row.PlayerID, row.PlayerName, row.Position, row.Team, i+1, seen[row.Position])
+		pr := toPlayerRanking(row.PlayerID, row.PlayerName, row.Position, row.Team, i+1, seen[row.Position])
+		pr.Tier = tierForRank(i+1, allBreaks)
+		out[i] = pr
 	}
 	return out
+}
+
+// tierForRank returns the 1-based tier that rank falls into, given the
+// before_rank values (ascending) for one (owner, position) scope. Each break
+// starts a new tier immediately before its rank, so a rank is in tier 1 +
+// (the number of breaks at or before it).
+func tierForRank(rank int, breaksAscending []int) int {
+	tier := 1
+	for _, b := range breaksAscending {
+		if rank >= b {
+			tier++
+		}
+	}
+	return tier
+}
+
+// tierBreaksByOwnerPosition groups all-owners tier-break rows (already ordered
+// by owner, position, before_rank) into owner -> position -> ascending ranks.
+func tierBreaksByOwnerPosition(rows []db.ListTierBreaksAllOwnersRow) map[string]map[string][]int {
+	out := make(map[string]map[string][]int)
+	for _, r := range rows {
+		inner, ok := out[r.Owner]
+		if !ok {
+			inner = make(map[string][]int)
+			out[r.Owner] = inner
+		}
+		inner[r.Position] = append(inner[r.Position], int(r.BeforeRank))
+	}
+	return out
+}
+
+// tierBreaksByPosition groups one owner's tier-break rows (already ordered by
+// position, before_rank) into position -> ascending before_ranks.
+func tierBreaksByPosition(rows []db.ListTierBreaksRow) map[string][]int {
+	out := make(map[string][]int)
+	for _, r := range rows {
+		out[r.Position] = append(out[r.Position], int(r.BeforeRank))
+	}
+	return out
+}
+
+// allScopeBreaks returns the owner's 'ALL'-scope before_ranks (ascending),
+// used to stamp tier on overall (unfiltered) single-owner lists.
+func (h *RankingsService) allScopeBreaks(ctx context.Context, owner string) ([]int, error) {
+	rows, err := h.q.ListTierBreaks(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	return tierBreaksByPosition(rows)[tierScopeAll], nil
+}
+
+// validateTierBreaks checks that every before_rank is >= 1 and that no two
+// breaks share a before_rank, returning a friendly error otherwise.
+func validateTierBreaks(breaks []TierBreak) error {
+	seen := make(map[int]bool, len(breaks))
+	for _, b := range breaks {
+		if b.BeforeRank < 1 {
+			return fmt.Errorf("before_rank must be >= 1 (got %d)", b.BeforeRank)
+		}
+		if seen[b.BeforeRank] {
+			return fmt.Errorf("a tier break already exists at rank %d", b.BeforeRank)
+		}
+		seen[b.BeforeRank] = true
+	}
+	return nil
 }
 
 // writeErrIfAny maps a domain/service error to the appropriate HTTP status

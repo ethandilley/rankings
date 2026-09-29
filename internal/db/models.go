@@ -33,6 +33,15 @@ type Session struct {
 	ExpiresAt pgtype.Timestamptz
 }
 
+type TierBreak struct {
+	ID         int64
+	Owner      string
+	Position   string
+	BeforeRank int32
+	Label      pgtype.Text
+	CreatedAt  pgtype.Timestamptz
+}
+
 type User struct {
 	ID           int64
 	Username     string

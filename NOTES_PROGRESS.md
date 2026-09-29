@@ -113,3 +113,59 @@ verified, what was skipped, and the commit hash.
 - The consensus endpoint has no frontend view yet (follow-up doc).
 - The UI filters client-side in v1; the server-side `?position=` filter is
   implemented and smoke-tested but not wired into the UI.
+
+---
+
+## 04 — Tiers
+
+**Commit:** `070f83a`
+
+### What was done
+- **Migration `0008_tier_breaks.sql` (applied, `goose_db_version` = 8):**
+  new `tier_breaks` table — `id BIGSERIAL PK`, `owner TEXT NOT NULL`,
+  `position TEXT NOT NULL` (`'ALL'` or a position code), `before_rank INT
+  NOT NULL`, `label TEXT` (nullable), `created_at TIMESTAMPTZ DEFAULT now()`,
+  `UNIQUE(owner, position, before_rank)`, index on `owner`.
+- **sqlc** (`db/queries/tiers.sql`, regenerated `internal/db/tiers.sql.go`):
+  `ListTierBreaks(owner)`, `ListTierBreaksAllOwners()`,
+  `DeleteTierBreaksForScope(owner, position)`, and `InsertTierBreak`
+  (named `sqlc.narg(label)` → `pgtype.Text`).
+- **Rankings service** (`internal/server/rankings/rankings.go`):
+  `PlayerRanking` gains `tier`. `stampTiers` loads the owner's breaks once per
+  request and stamps each row's tier by the active scope's rank (ALL→overall,
+  exact position→positional, FLEX→per-row positional), degrading to all-1 on
+  a load error. `toPlayerRankings(rows, allBreaks)` stamps mutation
+  responses. New `GET /tiers/{owner}?position=` (owner-gated) and
+  `PUT /tiers/{owner}?position=` (owner-gated, transactional full-replace).
+  `validateTierBreaks` rejects `before_rank < 1` and duplicates with friendly
+  messages. `tierForRank` is a pure, table-tested helper.
+- **Tests** (`rankings_test.go`): table-driven `TestTierForRank` (12 cases),
+  `TestValidateTierBreaks` (6 cases), and `TestToPlayerRankingsTiers`
+  (break at 3 → `[1,1,2,2,2]`); existing calls updated to the new
+  `toPlayerRankings(rows, allBreaks)` signature.
+- **Frontend** (`web/index.html`): API client `getTierBreaks`/`setTierBreaks`;
+  `activeTierScope()` (All→ALL, position tab→code, FLEX/Other→none), a JS
+  port of `tierForRank`, and `loadTierBreaks` (owner-only, key-guarded,
+  race-safe). In the rank sheet each inter-row gap renders either a labeled
+  divider (click to rename inline, × to delete) or a thin "+ tier break" pill
+  (owner boards only, never before the first row); all mutations full-replace
+  via `PUT`. Added the matching CSS.
+
+### What was verified
+- `go build ./...`, `go vet ./...`, `go test ./...` green; `node --check` on
+  the extracted JS of `index.html` passes.
+- Smoke test (`docker compose up -d --build` + curl): `GET /rankings` rows
+  carry `tier` (all 1 with no breaks); `GET /tiers/ethan?position=ALL` → 200
+  empty; `PUT` a break at rank 3 → `GET /rankings` shows ranks 1–2 tier 1 and
+  3+ tier 2; positional `?position=QB` break at pos 2 → pos 1 tier 1, pos 2+
+  tier 2, independent of the ALL scope; label-omitted break round-trips as a
+  SQL NULL; empty-array `PUT` clears breaks (tiers back to 1); duplicate
+  `before_rank` → 400 "a tier break already exists at rank N"; `before_rank 0`
+  → 400; missing `position` → 400; cross-owner `GET` → 403; no cookie → 401.
+  All test breaks were cleared afterward (`tier_breaks` back to 0 rows).
+
+### What was skipped / deferred
+- The server `tier` field is API completeness only; the frontend renders
+  tiers from the fetched breaks itself (single source of truth for placement
+  and labels).
+- Tier UI is owner-only by design; read-only boards show plain ranks.

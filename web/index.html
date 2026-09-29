@@ -314,6 +314,79 @@
   .rank-row.saving { opacity: 0.55; }
   .rank-row.flash { background: var(--bg-hover); }
 
+  .tier-divider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 4px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(91, 157, 255, 0.06);
+  }
+
+  .tier-divider-label {
+    border: none;
+    background: none;
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .tier-divider-label:hover { background: rgba(148, 184, 219, 0.14); }
+
+  .tier-divider-input {
+    width: 170px;
+    border: 1px solid var(--accent);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    padding: 2px 8px;
+    outline: none;
+  }
+
+  .tier-divider-del {
+    width: 20px;
+    height: 20px;
+    font-size: 11px;
+    border-radius: 4px;
+    color: var(--muted);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .tier-divider:hover .tier-divider-del { opacity: 1; }
+
+  .tier-gap {
+    display: flex;
+    justify-content: center;
+    padding: 1px 4px;
+    background: var(--bg);
+  }
+  .tier-gap-btn {
+    border: 1px dashed transparent;
+    background: none;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    line-height: 1;
+    padding: 2px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+  .tier-gap:hover .tier-gap-btn {
+    opacity: 1;
+    border-color: var(--accent-deep);
+    color: var(--accent);
+  }
+
   .rank-num {
     font-weight: 600;
     font-size: 15px;
@@ -814,12 +887,16 @@
   const DEFAULT_API_BASE = (window.location.protocol === 'http:' || window.location.protocol === 'https:') ? window.location.origin : 'http://localhost:8081';
   let API_BASE = localStorage.getItem('rankings_api_base') || DEFAULT_API_BASE;
 
-  /** @type {{owner: string, rankings: {player_id: number, player_name: string, position: string, team: string, overall_rank: number, positional_rank: number}[]}[]} */
+  /** @type {{owner: string, rankings: {player_id: number, player_name: string, position: string, team: string, overall_rank: number, positional_rank: number, tier: number}[]}[]} */
   let owners = [];
   let selectedOwner = null;
   let loading = true;
   let currentUser = null;
   let activePositionTab = 'All';
+  /** @type {{before_rank: number, label: string}[]} */
+  let activeTierBreaks = [];
+  /** @type {string|null} owner|scope key that activeTierBreaks was loaded for */
+  let tierBreaksKey = null;
 
   const el = {
     statusDot: document.getElementById('statusDot'),
@@ -916,6 +993,13 @@
       '/rankings/' + encodeURIComponent(owner) + '/players/' + encodeURIComponent(playerId),
       { method: 'DELETE' }
     ),
+    getTierBreaks: (owner, position) => apiRequest(
+      '/tiers/' + encodeURIComponent(owner) + '?position=' + encodeURIComponent(position)
+    ),
+    setTierBreaks: (owner, position, breaks) => apiRequest(
+      '/tiers/' + encodeURIComponent(owner) + '?position=' + encodeURIComponent(position),
+      { method: 'PUT', body: JSON.stringify({ breaks }) }
+    ),
   };
 
   // ---------------------------------------------------------------------
@@ -1010,6 +1094,151 @@
   }
 
   // ---------------------------------------------------------------------
+  // Tier breaks (doc 04)
+  // ---------------------------------------------------------------------
+  // Tiers are the owner's value clusters, stored as "a new tier starts
+  // immediately before this rank" markers, scoped per position. 'ALL' holds
+  // the overall board's breaks and position codes hold positional ones. FLEX
+  // and Other are composite views with no tier scope of their own. Tier UI is
+  // owner-only: other boards are read-only and show plain ranks.
+  function activeTierScope() {
+    if (activePositionTab === 'All') return 'ALL';
+    return KNOWN_POSITIONS.has(activePositionTab) ? activePositionTab : null;
+  }
+
+  // A row's rank within the tier scope: overall rank for ALL, positional
+  // rank for a single position.
+  function scopeRank(row, scope) {
+    return scope === 'ALL' ? row.overall_rank : row.positional_rank;
+  }
+
+  // JS port of the server's tierForRank: the 1-based tier a rank falls into,
+  // given the scope's before_rank values (ascending).
+  function tierForRank(rank, breaks) {
+    let tier = 1;
+    for (const b of breaks) if (rank >= b) tier++;
+    return tier;
+  }
+
+  function tierBreaksKeyFor(owner, scope) { return owner + '|' + scope; }
+
+  // Fetches the current (owner, scope) breaks unless we already hold them.
+  // No-op for read-only boards and for FLEX/Other tabs.
+  async function loadTierBreaks() {
+    const owner = selectedOwner;
+    const scope = activeTierScope();
+    const isOwner = Boolean(currentUser && owner && owner === currentUser.username);
+    if (!isOwner || !scope) {
+      if (activeTierBreaks.length || tierBreaksKey) {
+        activeTierBreaks = [];
+        tierBreaksKey = null;
+      }
+      return;
+    }
+    const key = tierBreaksKeyFor(owner, scope);
+    if (tierBreaksKey === key) return;
+    tierBreaksKey = key;
+    try {
+      const data = await api.getTierBreaks(owner, scope);
+      if (tierBreaksKey !== key) return;
+      activeTierBreaks = (data.breaks || []).slice().sort((a, b) => a.before_rank - b.before_rank);
+      renderBoard();
+    } catch (err) {
+      tierBreaksKey = null;
+      toast(err.message, 'error');
+    }
+  }
+
+  // Full-replaces the scope's breaks (the endpoint takes the whole set),
+  // then re-renders from the response.
+  async function saveTierBreaks(owner, scope, breaks) {
+    try {
+      const data = await api.setTierBreaks(owner, scope, breaks);
+      if (selectedOwner === owner && activeTierScope() === scope) {
+        activeTierBreaks = (data.breaks || []).slice().sort((a, b) => a.before_rank - b.before_rank);
+        tierBreaksKey = tierBreaksKeyFor(owner, scope);
+        renderBoard();
+      }
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  function addTierBreakAt(beforeRank) {
+    const next = activeTierBreaks.concat([{ before_rank: beforeRank, label: '' }])
+      .sort((a, b) => a.before_rank - b.before_rank);
+    saveTierBreaks(selectedOwner, activeTierScope(), next);
+  }
+
+  function renameTierBreakAt(beforeRank, label) {
+    const next = activeTierBreaks.map((b) =>
+      b.before_rank === beforeRank ? { before_rank: b.before_rank, label: label } : b);
+    saveTierBreaks(selectedOwner, activeTierScope(), next);
+  }
+
+  function deleteTierBreakAt(beforeRank) {
+    const next = activeTierBreaks.filter((b) => b.before_rank !== beforeRank);
+    saveTierBreaks(selectedOwner, activeTierScope(), next);
+  }
+
+  function makeTierDivider(beforeRank, label, tier) {
+    const li = document.createElement('li');
+    li.className = 'tier-divider';
+
+    const labelBtn = document.createElement('button');
+    labelBtn.type = 'button';
+    labelBtn.className = 'tier-divider-label';
+    labelBtn.textContent = label || ('Tier ' + tier);
+    labelBtn.title = 'Rename this tier';
+
+    const delBtn = iconButton('\u00d7', () => deleteTierBreakAt(beforeRank));
+    delBtn.className = 'icon-btn tier-divider-del';
+    delBtn.title = 'Remove this tier break';
+
+    labelBtn.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'tier-divider-input';
+      input.value = label;
+      input.placeholder = 'Tier ' + tier;
+      labelBtn.replaceWith(input);
+      input.focus();
+      input.select();
+
+      let done = false;
+      const commit = (save) => {
+        if (done) return;
+        done = true;
+        const next = input.value.trim();
+        if (save && next !== label) renameTierBreakAt(beforeRank, next);
+        else renderBoard();
+      };
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+      });
+      input.addEventListener('blur', () => commit(true));
+    });
+
+    li.appendChild(labelBtn);
+    li.appendChild(delBtn);
+    return li;
+  }
+
+  function makeTierGap(beforeRank) {
+    const li = document.createElement('li');
+    li.className = 'tier-gap';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tier-gap-btn';
+    btn.textContent = '+ tier break';
+    btn.title = 'Start a new tier before rank ' + beforeRank;
+    btn.addEventListener('click', () => addTierBreakAt(beforeRank));
+    li.appendChild(btn);
+    return li;
+  }
+
+  // ---------------------------------------------------------------------
   // Rendering
   // ---------------------------------------------------------------------
   function setStatus(state, text) {
@@ -1065,6 +1294,7 @@
     selectedOwner = owner;
     renderOwnerList();
     renderBoard();
+    loadTierBreaks();
   }
 
   function findOwner(owner) {
@@ -1091,6 +1321,7 @@
       btn.addEventListener('click', () => {
         activePositionTab = tab;
         renderBoard();
+        loadTierBreaks();
       });
       bar.appendChild(btn);
     });
@@ -1148,6 +1379,8 @@
     } else {
       const rows = filteredRankings(ownerData);
       const isAll = activePositionTab === 'All';
+      const tierScope = activeTierScope();
+      const breakRanks = activeTierBreaks.map((b) => b.before_rank);
 
       if (rows.length === 0) {
         const empty = document.createElement('li');
@@ -1157,6 +1390,19 @@
       }
 
       rows.forEach((p, idx) => {
+        // Between-row tier UI (owner's own board only): a divider where a
+        // break exists, otherwise a thin "+ tier break" gap. Never before the
+        // first row — a break at rank 1 would put everyone in tier 2.
+        if (idx > 0 && tierScope) {
+          const R = scopeRank(p, tierScope);
+          const brk = activeTierBreaks.find((b) => b.before_rank === R);
+          if (brk) {
+            list.appendChild(makeTierDivider(R, brk.label, tierForRank(R, breakRanks)));
+          } else if (canEdit) {
+            list.appendChild(makeTierGap(R));
+          }
+        }
+
         const row = document.createElement('li');
         row.className = 'rank-row';
         row.dataset.player = p.player_id;
@@ -1188,6 +1434,7 @@
             posBadge.addEventListener('click', () => {
               activePositionTab = target;
               renderBoard();
+              loadTierBreaks();
             });
           }
           name.appendChild(posBadge);
@@ -1499,6 +1746,7 @@
       }
       renderOwnerList();
       renderBoard();
+      loadTierBreaks();
     } catch (err) {
       loading = false;
       owners = [];

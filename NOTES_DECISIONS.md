@@ -47,3 +47,26 @@ Decisions made while implementing the `ai/` docs, with reasoning. Appended per s
 ### Filtered-view move reuses the overall move endpoint (doc off-by-one resolved)
 - A move inside a filtered view sends the **overall rank of the neighbor** the player is moving next to, via the unchanged `PATCH .../move`. Because the server removes the player and inserts at `newRank-1`, the player lands exactly in that neighbor's overall slot — immediately adjacent in the overall list. In the All tab this collapses to the old `rank ± 1`.
 - The doc's drag example suggested `neighbor.overall_rank - 1` for "move up", which is off by one (it would leave a gap). The bold principle — "immediately adjacent in the overall list" — and the doc's "move to top → overall rank of the player currently in slot 1" example both agree on `neighbor.overall_rank`, so that is the formula used. Verified end-to-end: moving Bijan up on the RB tab (to Gibbs's overall rank) put Bijan at RB #1 and shifted Gibbs to RB #2.
+
+## doc 04 — Tiers
+
+### Tier scope is per (owner, position); FLEX/Other have none
+- A board's value clusters are scoped by position: `position = 'ALL'` holds the overall board's breaks and a position code (`QB`, `RB`, …) holds positional ones. `FLEX` and `Other` are composite views (they mix positions), so they have no tier scope of their own — the frontend hides the tier UI on those tabs.
+
+### Full-replace PUT, not the doc's single-row upsert/delete
+- The doc's SQL section lists a single-row `SetTierBreak` (upsert) + `DeleteTierBreak`, but its API section prescribes a `PUT` that takes the whole set. The implementation follows the API section: `PUT /tiers/{owner}?position=` = `DeleteTierBreaksForScope` + one `InsertTierBreak` per break, in a transaction. The frontend sends the complete (possibly edited) list on every change.
+
+### `tier` is computed server-side per request, never stored
+- `GET /rankings` rows carry a `tier` (1-based) derived in Go by `tierForRank(rank, breaks)` over the owner's breaks for the active scope. Scope → rank mapping: `ALL` → `overall_rank`, an exact position → `positional_rank`, `FLEX` → each row's own position `positional_rank`. On a breaks-load error the handler degrades gracefully (all tiers stay 1) rather than failing the whole rankings read.
+
+### `tierForRank` is a pure function, ported to JS
+- Server (`tierForRank`) and frontend (`tierForRank`) are independent ports of the same rule: tier = 1 + the count of breaks with `before_rank <= rank`. Both are table-tested. The frontend is the source of truth for rendering (it places dividers and computes labels from the fetched breaks); the server's `tier` field is for API completeness.
+
+### Tier UI is owner-only
+- Tiers are one owner's private value judgment, so the dividers and the "+ tier break" / rename / delete affordances render only on the board owner's own board (`canEdit`). Other boards are read-only and show plain ranks.
+
+### Both GET and PUT `/tiers` are owner-gated
+- The doc explicitly gates only the `PUT`. Both `GET /tiers/{owner}` and `PUT /tiers/{owner}` use `requireOwner` (403 cross-owner), so an owner's tier structure is not exposed to other users — consistent with the owner-only UI.
+
+### Nullable label via `sqlc.narg`
+- No prior query had a nullable column. `label` is nullable, so `InsertTierBreak` uses a named `sqlc.narg(label)` param (mixing positional `$n` with `narg` is invalid) and generates a `pgtype.Text` (`.String == ""` when NULL). Verified a label-omitted break round-trips as a real SQL NULL.
