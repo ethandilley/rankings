@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/ethandilley/rankings/internal/db"
 	"github.com/ethandilley/rankings/internal/server/auth"
@@ -14,11 +15,21 @@ import (
 )
 
 type PlayerRanking struct {
-	PlayerID   int64  `json:"player_id"`
-	PlayerName string `json:"player_name"`
-	Position   string `json:"position"`
-	Team       string `json:"team"`
-	Rank       int    `json:"rank"`
+	PlayerID       int64  `json:"player_id"`
+	PlayerName     string `json:"player_name"`
+	Position       string `json:"position"`
+	Team           string `json:"team"`
+	OverallRank    int    `json:"overall_rank"`
+	PositionalRank int    `json:"positional_rank"`
+}
+
+type ConsensusEntry struct {
+	PlayerID          int64   `json:"player_id"`
+	PlayerName        string  `json:"player_name"`
+	Position          string  `json:"position"`
+	Team              string  `json:"team"`
+	AvgPositionalRank float64 `json:"avg_positional_rank"`
+	OwnerCount        int     `json:"owner_count"`
 }
 
 type OwnerRanking struct {
@@ -39,11 +50,40 @@ type AddPlayerRequest struct {
 }
 
 var (
-	ErrOwnerNotFound   = errors.New("owner not found")
-	ErrPlayerNotFound  = errors.New("player not found")
-	ErrPlayerAmbiguous = errors.New("player name is ambiguous")
-	ErrPlayerExists    = errors.New("player already ranked for this owner")
+	ErrOwnerNotFound    = errors.New("owner not found")
+	ErrPlayerNotFound   = errors.New("player not found")
+	ErrPlayerAmbiguous  = errors.New("player name is ambiguous")
+	ErrPlayerExists     = errors.New("player already ranked for this owner")
+	ErrInvalidPosition  = errors.New("unknown position")
+	ErrPositionRequired = errors.New("position is required")
 )
+
+// flexPositions are the positions counted as FLEX-eligible. The league
+// starts RB/WR/TE in its flex slots (see NOTES_DECISIONS.md, doc 03).
+var flexPositions = []string{"RB", "WR", "TE"}
+
+type positionFilterKind int
+
+const (
+	filterNone  positionFilterKind = iota // no ?position= param: unfiltered
+	filterFlex                            // ?position=FLEX: RB, WR, TE combined
+	filterExact                           // ?position=<one position>
+)
+
+// parsePositionFilter interprets the raw ?position= query value. The exact
+// value is upper-cased but not validated here; the caller checks it against
+// the positions that actually exist in the players table so the API doesn't
+// drift when new position values appear in the data.
+func parsePositionFilter(raw string) (kind positionFilterKind, value string, err error) {
+	if raw == "" {
+		return filterNone, "", nil
+	}
+	value = strings.ToUpper(raw)
+	if value == "FLEX" {
+		return filterFlex, "", nil
+	}
+	return filterExact, value, nil
+}
 
 type RankingsService struct {
 	conn *pgx.Conn
@@ -58,6 +98,7 @@ func NewRankingsService(conn *pgx.Conn, authService *auth.AuthService) *Rankings
 func (h *RankingsService) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /rankings", h.auth.RequireAuth(h.getRankings))
 	mux.HandleFunc("POST /rankings", h.auth.RequireAuth(h.postRankings))
+	mux.HandleFunc("GET /rankings/consensus", h.auth.RequireAuth(h.getConsensus))
 	mux.HandleFunc("PATCH /rankings/{owner}/move", h.auth.RequireAuth(h.moveRanking))
 	mux.HandleFunc("POST /rankings/{owner}/players", h.auth.RequireAuth(h.addPlayer))
 	mux.HandleFunc("DELETE /rankings/{owner}/players/{player}", h.auth.RequireAuth(h.removePlayer))
@@ -84,10 +125,33 @@ func (h *RankingsService) requireOwner(w http.ResponseWriter, r *http.Request) (
 // ---------------------------------------------------------------------------
 
 func (h *RankingsService) getRankings(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.q.ListRankings(r.Context())
+	positions, err := h.resolvePositionFilter(r.Context(), r.URL.Query().Get("position"))
 	if err != nil {
-		http.Error(w, "failed to load rankings", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	var rows []db.ListRankingsWithPositionalRankRow
+	if len(positions) == 0 {
+		fetched, ferr := h.q.ListRankingsWithPositionalRank(r.Context())
+		if ferr != nil {
+			http.Error(w, "failed to load rankings", http.StatusInternalServerError)
+			return
+		}
+		rows = fetched
+	} else {
+		filtered, ferr := h.q.ListRankingsWithPositionalRankFiltered(r.Context(), positions)
+		if ferr != nil {
+			http.Error(w, "failed to load rankings", http.StatusInternalServerError)
+			return
+		}
+		for _, f := range filtered {
+			rows = append(rows, db.ListRankingsWithPositionalRankRow{
+				Owner: f.Owner, PlayerID: f.PlayerID, PlayerName: f.PlayerName,
+				Position: f.Position, Team: f.Team,
+				OverallRank: f.OverallRank, PositionalRank: f.PositionalRank,
+			})
+		}
 	}
 
 	// Rows come back ordered by owner, rank (see the SQL). Group them into
@@ -101,12 +165,81 @@ func (h *RankingsService) getRankings(w http.ResponseWriter, r *http.Request) {
 			byOwner[row.Owner] = or
 			order = append(order, row.Owner)
 		}
-		or.Rankings = append(or.Rankings, toPlayerRanking(row.PlayerID, row.PlayerName, row.Position, row.Team, int(row.Rank)))
+		or.Rankings = append(or.Rankings, toPlayerRanking(row.PlayerID, row.PlayerName, row.Position, row.Team, int(row.OverallRank), int(row.PositionalRank)))
 	}
 
 	out := make([]OwnerRanking, 0, len(order))
 	for _, owner := range order {
 		out = append(out, *byOwner[owner])
+	}
+
+	writeJSON(w, http.StatusOK, out)
+}
+
+// resolvePositionFilter turns the raw ?position= value into the concrete list
+// of position strings to filter on (empty = no filter). FLEX expands to the
+// flex-eligible positions; a single position must exist in the players table.
+func (h *RankingsService) resolvePositionFilter(ctx context.Context, raw string) ([]string, error) {
+	kind, value, err := parsePositionFilter(raw)
+	if err != nil {
+		return nil, err
+	}
+	switch kind {
+	case filterNone:
+		return nil, nil
+	case filterFlex:
+		return flexPositions, nil
+	default:
+		existing, err := h.q.ListDistinctPositions(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load positions: %w", err)
+		}
+		for _, pos := range existing {
+			if strings.EqualFold(pos, value) {
+				return []string{pos}, nil
+			}
+		}
+		return nil, ErrInvalidPosition
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GET /rankings/consensus?position=
+// ---------------------------------------------------------------------------
+
+// getConsensus returns the league-wide positional consensus: for each player
+// in the requested position(s), the average positional rank across every
+// owner who ranked them, sorted best-first. "position" is required and may be
+// a single position or the synthetic FLEX value.
+func (h *RankingsService) getConsensus(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("position")
+	if raw == "" {
+		http.Error(w, ErrPositionRequired.Error(), http.StatusBadRequest)
+		return
+	}
+
+	positions, err := h.resolvePositionFilter(r.Context(), raw)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	rows, err := h.q.ListPositionalConsensus(r.Context(), positions)
+	if err != nil {
+		http.Error(w, "failed to load consensus", http.StatusInternalServerError)
+		return
+	}
+
+	out := make([]ConsensusEntry, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, ConsensusEntry{
+			PlayerID:          row.PlayerID,
+			PlayerName:        row.PlayerName,
+			Position:          row.Position,
+			Team:              row.Team,
+			AvgPositionalRank: row.AvgPositionalRank,
+			OwnerCount:        int(row.OwnerCount),
+		})
 	}
 
 	writeJSON(w, http.StatusOK, out)
@@ -529,17 +662,25 @@ func indexOfPlayerID(rows []db.ListRankingsByOwnerForUpdateRow, playerID int64) 
 	return -1
 }
 
-func toPlayerRanking(playerID int64, playerName, position, team string, rank int) PlayerRanking {
-	return PlayerRanking{PlayerID: playerID, PlayerName: playerName, Position: position, Team: team, Rank: rank}
+func toPlayerRanking(playerID int64, playerName, position, team string, overallRank, positionalRank int) PlayerRanking {
+	return PlayerRanking{
+		PlayerID: playerID, PlayerName: playerName, Position: position, Team: team,
+		OverallRank: overallRank, PositionalRank: positionalRank,
+	}
 }
 
-// toPlayerRankings converts loaded rows into the API response shape, in
-// order, assigning ranks 1..N positionally rather than trusting row.Rank
+// toPlayerRankings converts ordered rows into the API response shape,
+// assigning overall_rank = i+1 positionally rather than trusting row.Rank
 // (which may be stale immediately after a mutation in the same tx).
+// positional_rank is derived the same way the SQL window function does it:
+// the 1-based count of how many rows at or before this one share its
+// position.
 func toPlayerRankings(rows []db.ListRankingsByOwnerForUpdateRow) []PlayerRanking {
 	out := make([]PlayerRanking, len(rows))
+	seen := make(map[string]int)
 	for i, row := range rows {
-		out[i] = toPlayerRanking(row.PlayerID, row.PlayerName, row.Position, row.Team, i+1)
+		seen[row.Position]++
+		out[i] = toPlayerRanking(row.PlayerID, row.PlayerName, row.Position, row.Team, i+1, seen[row.Position])
 	}
 	return out
 }

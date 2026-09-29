@@ -50,38 +50,83 @@ func (q *Queries) InsertRanking(ctx context.Context, arg InsertRankingParams) er
 	return err
 }
 
-const listRankings = `-- name: ListRankings :many
-SELECT r.owner, p.id AS player_id, p.player_name, p.position, p.team, r.rank
-FROM rankings r
-JOIN players p ON p.id = r.player_id
-ORDER BY r.owner, r.rank
+const listDistinctPositions = `-- name: ListDistinctPositions :many
+SELECT DISTINCT position
+FROM players
+ORDER BY position
 `
 
-type ListRankingsRow struct {
-	Owner      string
-	PlayerID   int64
-	PlayerName string
-	Position   string
-	Team       string
-	Rank       int32
-}
-
-func (q *Queries) ListRankings(ctx context.Context) ([]ListRankingsRow, error) {
-	rows, err := q.db.Query(ctx, listRankings)
+func (q *Queries) ListDistinctPositions(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listDistinctPositions)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListRankingsRow
+	var items []string
 	for rows.Next() {
-		var i ListRankingsRow
+		var position string
+		if err := rows.Scan(&position); err != nil {
+			return nil, err
+		}
+		items = append(items, position)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPositionalConsensus = `-- name: ListPositionalConsensus :many
+WITH positioned AS (
+    SELECT
+        r.owner,
+        r.player_id,
+        p.position,
+        RANK() OVER (PARTITION BY r.owner, p.position ORDER BY r.rank) AS positional_rank
+    FROM rankings r
+    JOIN players p ON p.id = r.player_id
+)
+SELECT
+    p.id AS player_id,
+    p.player_name,
+    p.position,
+    p.team,
+    (AVG(pos.positional_rank))::float8 AS avg_positional_rank,
+    COUNT(*) AS owner_count
+FROM positioned pos
+JOIN players p ON p.id = pos.player_id
+WHERE p.position = ANY($1::text[])
+GROUP BY p.id, p.player_name, p.position, p.team
+ORDER BY AVG(pos.positional_rank) ASC, p.player_name ASC
+`
+
+type ListPositionalConsensusRow struct {
+	PlayerID          int64
+	PlayerName        string
+	Position          string
+	Team              string
+	AvgPositionalRank float64
+	OwnerCount        int64
+}
+
+// League-wide crowd-sourced positional big board: the average positional
+// rank per player across every owner who ranked them.
+func (q *Queries) ListPositionalConsensus(ctx context.Context, positions []string) ([]ListPositionalConsensusRow, error) {
+	rows, err := q.db.Query(ctx, listPositionalConsensus, positions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPositionalConsensusRow
+	for rows.Next() {
+		var i ListPositionalConsensusRow
 		if err := rows.Scan(
-			&i.Owner,
 			&i.PlayerID,
 			&i.PlayerName,
 			&i.Position,
 			&i.Team,
-			&i.Rank,
+			&i.AvgPositionalRank,
+			&i.OwnerCount,
 		); err != nil {
 			return nil, err
 		}
@@ -127,6 +172,114 @@ func (q *Queries) ListRankingsByOwnerForUpdate(ctx context.Context, owner string
 			&i.Position,
 			&i.Team,
 			&i.Rank,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRankingsWithPositionalRank = `-- name: ListRankingsWithPositionalRank :many
+SELECT
+    r.owner,
+    p.id AS player_id,
+    p.player_name,
+    p.position,
+    p.team,
+    r.rank AS overall_rank,
+    RANK() OVER (PARTITION BY r.owner, p.position ORDER BY r.rank) AS positional_rank
+FROM rankings r
+JOIN players p ON p.id = r.player_id
+ORDER BY r.owner, r.rank
+`
+
+type ListRankingsWithPositionalRankRow struct {
+	Owner          string
+	PlayerID       int64
+	PlayerName     string
+	Position       string
+	Team           string
+	OverallRank    int32
+	PositionalRank int64
+}
+
+// Positional rank is derived, not stored: the player's rank within their
+// position, computed at query time from the overall (big-board) order.
+// RANK() (not DENSE_RANK) so future ties read like a draft board (1,1,3).
+func (q *Queries) ListRankingsWithPositionalRank(ctx context.Context) ([]ListRankingsWithPositionalRankRow, error) {
+	rows, err := q.db.Query(ctx, listRankingsWithPositionalRank)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRankingsWithPositionalRankRow
+	for rows.Next() {
+		var i ListRankingsWithPositionalRankRow
+		if err := rows.Scan(
+			&i.Owner,
+			&i.PlayerID,
+			&i.PlayerName,
+			&i.Position,
+			&i.Team,
+			&i.OverallRank,
+			&i.PositionalRank,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRankingsWithPositionalRankFiltered = `-- name: ListRankingsWithPositionalRankFiltered :many
+SELECT
+    r.owner,
+    p.id AS player_id,
+    p.player_name,
+    p.position,
+    p.team,
+    r.rank AS overall_rank,
+    RANK() OVER (PARTITION BY r.owner, p.position ORDER BY r.rank) AS positional_rank
+FROM rankings r
+JOIN players p ON p.id = r.player_id
+WHERE p.position = ANY($1::text[])
+ORDER BY r.owner, r.rank
+`
+
+type ListRankingsWithPositionalRankFilteredRow struct {
+	Owner          string
+	PlayerID       int64
+	PlayerName     string
+	Position       string
+	Team           string
+	OverallRank    int32
+	PositionalRank int64
+}
+
+func (q *Queries) ListRankingsWithPositionalRankFiltered(ctx context.Context, positions []string) ([]ListRankingsWithPositionalRankFilteredRow, error) {
+	rows, err := q.db.Query(ctx, listRankingsWithPositionalRankFiltered, positions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRankingsWithPositionalRankFilteredRow
+	for rows.Next() {
+		var i ListRankingsWithPositionalRankFilteredRow
+		if err := rows.Scan(
+			&i.Owner,
+			&i.PlayerID,
+			&i.PlayerName,
+			&i.Position,
+			&i.Team,
+			&i.OverallRank,
+			&i.PositionalRank,
 		); err != nil {
 			return nil, err
 		}

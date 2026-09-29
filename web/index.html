@@ -347,6 +347,55 @@
     padding: 2px 8px;
   }
 
+  .position-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 14px;
+  }
+
+  .pos-tab {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    border: 1px solid var(--line);
+    background: var(--bg-raised);
+    color: var(--text-soft);
+    border-radius: 999px;
+    padding: 4px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  }
+  .pos-tab:hover { border-color: var(--text-soft); color: var(--text); }
+  .pos-tab.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(148, 184, 219, 0.10);
+  }
+  .pos-tab-count {
+    font-size: 10.5px;
+    font-weight: 500;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .pos-tab.active .pos-tab-count { color: var(--accent); }
+
+  .rank-pos-badge {
+    flex: none;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    background: rgba(148, 184, 219, 0.14);
+    border-radius: 999px;
+    padding: 2px 8px;
+    cursor: default;
+  }
+  .rank-pos-badge[title] { cursor: pointer; }
+  .rank-pos-badge[title]:hover { background: rgba(148, 184, 219, 0.26); }
+
   .rank-actions {
     display: flex;
     gap: 4px;
@@ -765,11 +814,12 @@
   const DEFAULT_API_BASE = (window.location.protocol === 'http:' || window.location.protocol === 'https:') ? window.location.origin : 'http://localhost:8081';
   let API_BASE = localStorage.getItem('rankings_api_base') || DEFAULT_API_BASE;
 
-  /** @type {{owner: string, rankings: {player_id: number, player_name: string, position: string, team: string, rank: number}[]}[]} */
+  /** @type {{owner: string, rankings: {player_id: number, player_name: string, position: string, team: string, overall_rank: number, positional_rank: number}[]}[]} */
   let owners = [];
   let selectedOwner = null;
   let loading = true;
   let currentUser = null;
+  let activePositionTab = 'All';
 
   const el = {
     statusDot: document.getElementById('statusDot'),
@@ -924,6 +974,42 @@
   }
 
   // ---------------------------------------------------------------------
+  // Position tabs (doc 03)
+  // ---------------------------------------------------------------------
+  // The board is one flat overall list. Positional tabs are a client-side
+  // lens over it: we fetch the full unfiltered list once and filter in the
+  // browser (payload is small at ~180 players, so no server round-trip).
+  const POSITION_TABS = ['All', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'D/ST'];
+  const KNOWN_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'D/ST']);
+  const FLEX_POSITIONS = new Set(['RB', 'WR', 'TE']);
+
+  // Which players are visible under a given tab. FLEX unions RB/WR/TE; Other
+  // catches any position outside the known set (data-quality visibility).
+  function positionTabForPlayer(tab, player) {
+    const pos = String(player.position || '').toUpperCase();
+    switch (tab) {
+      case 'All': return true;
+      case 'FLEX': return FLEX_POSITIONS.has(pos);
+      case 'Other': return !KNOWN_POSITIONS.has(pos);
+      default: return pos === tab;
+    }
+  }
+
+  // The single-position tab a player's position maps to, or null when the
+  // position has no tab (unknown positions land in Other, not a tab).
+  function positionTabTarget(pos) {
+    const p = String(pos || '').toUpperCase();
+    return KNOWN_POSITIONS.has(p) ? p : null;
+  }
+
+  // The visible rows for the active tab, in overall order.
+  function filteredRankings(ownerData) {
+    const all = [...ownerData.rankings].sort((a, b) => a.overall_rank - b.overall_rank);
+    if (activePositionTab === 'All') return all;
+    return all.filter((p) => positionTabForPlayer(activePositionTab, p));
+  }
+
+  // ---------------------------------------------------------------------
   // Rendering
   // ---------------------------------------------------------------------
   function setStatus(state, text) {
@@ -985,6 +1071,33 @@
     return owners.find((o) => o.owner === owner);
   }
 
+  function renderPositionTabs(ownerData) {
+    const bar = document.createElement('div');
+    bar.className = 'position-tabs';
+
+    // Include the Other tab only if some player's position is outside the
+    // known set, so a data-quality problem is visible but not noisy.
+    const hasOther = ownerData.rankings.some((p) => !KNOWN_POSITIONS.has(String(p.position || '').toUpperCase()));
+    const tabs = hasOther ? POSITION_TABS.concat('Other') : POSITION_TABS;
+
+    tabs.forEach((tab) => {
+      const count = ownerData.rankings.filter((p) => positionTabForPlayer(tab, p)).length;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'pos-tab' + (tab === activePositionTab ? ' active' : '');
+      btn.innerHTML =
+        '<span class="pos-tab-name">' + escapeHtml(tab) + '</span>' +
+        '<span class="pos-tab-count">' + count + '</span>';
+      btn.addEventListener('click', () => {
+        activePositionTab = tab;
+        renderBoard();
+      });
+      bar.appendChild(btn);
+    });
+
+    return bar;
+  }
+
   function renderBoard() {
     el.boardContent.innerHTML = '';
 
@@ -1016,6 +1129,14 @@
     `;
     el.boardContent.appendChild(header);
 
+    if (ownerData.rankings.length > 0) {
+      // Guard against a stale tab (e.g. Other was active on a board that had
+      // unknown-position players, then we switched to one that doesn't).
+      const hasOther = ownerData.rankings.some((p) => !KNOWN_POSITIONS.has(String(p.position || '').toUpperCase()));
+      if (activePositionTab === 'Other' && !hasOther) activePositionTab = 'All';
+      el.boardContent.appendChild(renderPositionTabs(ownerData));
+    }
+
     const list = document.createElement('ul');
     list.className = 'rank-sheet';
 
@@ -1025,15 +1146,24 @@
       empty.textContent = 'No players ranked yet — add the first one below.';
       list.appendChild(empty);
     } else {
-      const sorted = [...ownerData.rankings].sort((a, b) => a.rank - b.rank);
-      sorted.forEach((p, idx) => {
+      const rows = filteredRankings(ownerData);
+      const isAll = activePositionTab === 'All';
+
+      if (rows.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'empty-sheet';
+        empty.textContent = 'No players in the ' + activePositionTab + ' tab.';
+        list.appendChild(empty);
+      }
+
+      rows.forEach((p, idx) => {
         const row = document.createElement('li');
         row.className = 'rank-row';
         row.dataset.player = p.player_id;
 
         const num = document.createElement('span');
         num.className = 'rank-num';
-        num.textContent = p.rank;
+        num.textContent = isAll ? p.overall_rank : p.positional_rank;
 
         const name = document.createElement('span');
         name.className = 'rank-player';
@@ -1043,25 +1173,52 @@
         nameText.textContent = p.player_name;
         name.appendChild(nameText);
 
-        const metaText = [p.position, p.team].filter(Boolean).join(' \u00b7 ');
-        if (metaText) {
-          const meta = document.createElement('span');
-          meta.className = 'rank-meta';
-          meta.textContent = metaText;
-          name.appendChild(meta);
+        // Position badge: in the All view it's the "RB3" positional badge
+        // (a useful glance at where a player sits within their position); in
+        // FLEX/Other it disambiguates which position a row belongs to. It's
+        // clickable when the position has its own tab.
+        const showPosBadge = isAll || activePositionTab === 'FLEX' || activePositionTab === 'Other';
+        if (showPosBadge && p.position) {
+          const posBadge = document.createElement('span');
+          posBadge.className = 'rank-pos-badge';
+          posBadge.textContent = p.position + p.positional_rank;
+          const target = positionTabTarget(p.position);
+          if (target) {
+            posBadge.title = 'Jump to the ' + target + ' tab';
+            posBadge.addEventListener('click', () => {
+              activePositionTab = target;
+              renderBoard();
+            });
+          }
+          name.appendChild(posBadge);
+        }
+
+        if (p.team) {
+          const teamBadge = document.createElement('span');
+          teamBadge.className = 'rank-meta';
+          teamBadge.textContent = p.team;
+          name.appendChild(teamBadge);
         }
 
         const actions = document.createElement('span');
         actions.className = 'rank-actions';
 
         if (canEdit) {
-          const upBtn = iconButton('\u2191', () => moveOnePosition(ownerData.owner, p, -1));
+          // A move inside a filtered view reuses the overall move endpoint
+          // unchanged: the player takes the overall slot of the neighbor it's
+          // moving next to, landing immediately adjacent to that neighbor in
+          // the overall list (in the All view this collapses to rank ± 1).
+          const upBtn = iconButton('\u2191', () => {
+            if (idx > 0) moveToOverallRank(ownerData.owner, p, rows[idx - 1].overall_rank);
+          });
           upBtn.title = 'Move up';
           upBtn.disabled = idx === 0;
 
-          const downBtn = iconButton('\u2193', () => moveOnePosition(ownerData.owner, p, 1));
+          const downBtn = iconButton('\u2193', () => {
+            if (idx < rows.length - 1) moveToOverallRank(ownerData.owner, p, rows[idx + 1].overall_rank);
+          });
           downBtn.title = 'Move down';
-          downBtn.disabled = idx === sorted.length - 1;
+          downBtn.disabled = idx === rows.length - 1;
 
           const delBtn = iconButton('\u00d7', () => removePlayer(ownerData.owner, p));
           delBtn.title = 'Remove player';
@@ -1179,12 +1336,11 @@
     if (selectedOwner === updated.owner) renderBoard();
   }
 
-  async function moveOnePosition(owner, player, delta) {
-    const ownerData = findOwner(owner);
-    if (!ownerData) return;
-    const newRank = player.rank + delta;
-    if (newRank < 1) return;
-
+  // Moves a player to an explicit overall rank via the (unchanged) move
+  // endpoint. In a filtered view the caller passes the overall rank of the
+  // neighbor the player should end up adjacent to; the server's move-and-
+  // shift then places them exactly there.
+  async function moveToOverallRank(owner, player, newRank) {
     try {
       const updated = await api.moveRanking(owner, player.player_id, newRank);
       applyOwnerUpdate(updated);
@@ -1226,13 +1382,13 @@
     try {
       if (playersById.size === 0) await loadPlayers();
       let unresolved = 0;
-      const rankings = DRAFT_ORDER_DEFAULT.map((rawName, i) => {
+      const rankings = DRAFT_ORDER_DEFAULT.map((rawName) => {
         const known = resolvePlayer(stripTeamPosSuffix(rawName));
         if (known) {
-          return { player_id: known.id, rank: i + 1 };
+          return { player_id: known.id };
         }
         unresolved++;
-        return { player_name: rawName, rank: i + 1 };
+        return { player_name: rawName };
       });
       if (unresolved > 0) {
         toast(unresolved + ' of ' + DRAFT_ORDER_DEFAULT.length +
@@ -1291,7 +1447,7 @@
     try {
       const known = resolvePlayer(firstPlayer);
       const firstRef = known ? { player_id: known.id } : { player_name: firstPlayer };
-      const created = await api.replaceRankings(owner, [Object.assign({ rank: 1 }, firstRef)]);
+      const created = await api.replaceRankings(owner, [firstRef]);
       owners.push(created);
       el.newOwnerForm.reset();
       el.newOwnerForm.classList.add('hidden');

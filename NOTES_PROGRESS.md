@@ -63,3 +63,53 @@ verified, what was skipped, and the commit hash.
   remove it once the autocomplete add-player UI is confirmed in production.
 - `scripts/__pycache__/` is untracked and not committed (out of scope; not yet
   added to `.gitignore`).
+
+---
+
+## 03 — Positional Rankings
+
+**Commit:** `3783d65`
+
+### What was done
+- **sqlc** (`db/queries/rankings.sql`, regenerated `internal/db/rankings.sql.go`):
+  replaced `ListRankings` with `ListRankingsWithPositionalRank` (adds a
+  `RANK() OVER (PARTITION BY owner, position ORDER BY rank)` window column);
+  added `ListRankingsWithPositionalRankFiltered` (`WHERE position = ANY(...)`),
+  `ListDistinctPositions`, and `ListPositionalConsensus` (league-wide average
+  positional rank per player + owner count for a position or FLEX).
+- **Rankings service** (`internal/server/rankings/rankings.go`):
+  `GET /rankings` now returns `overall_rank` + `positional_rank` (dropped the
+  old `rank`). `?position=` accepts `FLEX` (hardcoded RB/WR/TE) or an exact
+  position validated data-driven against `ListDistinctPositions` (400 on
+  unknown/missing). `parsePositionFilter` is a pure, table-tested helper.
+  Mutation responses derive positional rank in Go (`toPlayerRankings`).
+  Added `GET /rankings/consensus?position=` (stretch goal, no UI yet).
+- **Tests** (`internal/server/rankings/rankings_test.go`): table-driven tests
+  for `parsePositionFilter` and `toPlayerRankings` (mixed boards, single
+  position, empty).
+- **Frontend** (`web/index.html`): position-tab bar (All/QB/RB/WR/TE/FLEX/K/
+  D/ST, plus an Other tab only when unknown positions exist) with per-tab
+  counts; client-side filtering over the single unfiltered payload; the rank
+  number shows `overall_rank` in All and `positional_rank` in position tabs; a
+  clickable "RB3" positional badge (All/FLEX/Other) that jumps to a position's
+  tab; and filtered moves that send the neighbor's `overall_rank` through the
+  unchanged `PATCH .../move`. Removed the now-ignored `rank` field from the
+  replace/seed request bodies. Added CSS for the tabs and positional badge.
+
+### What was verified
+- `go build ./...`, `go vet ./...`, `go test ./...` green; `node --check` on the
+  extracted JS of `index.html` passes.
+- Smoke test (`docker compose up -d --build` + curl): unfiltered `GET /rankings`
+  returns `overall_rank`/`positional_rank`; `?position=RB` returns only RBs in
+  positional order; `?position=FLEX` returns RB/WR/TE in overall order with each
+  row's positional rank; `?position=BOGUS` → 400; `GET /rankings/consensus`
+  with no position → 400, and `?position=RB`/`FLEX` return correct league
+  averages (e.g. Jahmyr Gibbs avg 1.17 across 12 owners).
+- Filtered move verified end-to-end: on ethan's RB tab, moving the #2 RB up
+  (sending the #1 RB's overall rank) placed it at RB #1 and shifted the other
+  to RB #2; the test move was then reverted, restoring the board.
+
+### What was skipped / deferred
+- The consensus endpoint has no frontend view yet (follow-up doc).
+- The UI filters client-side in v1; the server-side `?position=` filter is
+  implemented and smoke-tested but not wired into the UI.
