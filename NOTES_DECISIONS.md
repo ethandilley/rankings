@@ -126,3 +126,20 @@ Decisions made while implementing the `ai/` docs, with reasoning. Appended per s
 
 ### Scheduling: one-shot compose service + documented cron line
 - `espn-sync` compose service (profile `sync`, same image, `command: ["/bin/espn-sync"]`), invoked as `docker compose --env-file .envrc --profile sync run --rm espn-sync`. There is no `crontab` binary on this machine, so the daily cron line is documented in NOTES_PROGRESS rather than installed. Gotcha: `docker compose run SERVICE --flag` replaces the command, so flags must be prefixed with the binary (`run --rm espn-sync /bin/espn-sync --dry-run`).
+
+## doc 07 — Security Hardening
+
+### CORS was already an allow-list (doc 01); verified, not rewritten
+- `withCORS` in `cmd/server/main.go` has allowed origins via the `ALLOWED_ORIGINS` env var (default `http://localhost:8081`), `Vary: Origin`, credentials only for allowed origins, and the frontend is served same-origin by the Go binary's `http.FileServer` — the doc's "simpler fix". Verified live in the smoke test; no code change.
+
+### History purge via `git filter-branch`, not repo recreation
+- The `.envrc` with real ESPN cookies was committed in the early "stash" commits and the repo is **public** on GitHub, so the leak is live until the cookie is rotated (manual user step, flagged since doc 06). Chose `git filter-branch --index-filter 'git rm -r --cached --ignore-unmatch .envrc' --prune-empty -- --all` over the doc's "recreate fresh" option because it preserves the doc-commit trail (the recorded hashes in NOTES are matched by commit message and re-recorded after the rewrite), then force-pushed `main` and `01` and pruned the old objects locally (`refs/original` deletion + `reflog expire` + `gc --prune=now`).
+
+### Validation caps: rank ≤ 500, list ≤ 500, owner ≤ 64, player_name ≤ 200
+- Per the doc: `moveRanking`/`addPlayer` now reject `rank > 500` (the in-memory shift loop already clamps, but the cap rejects the request up front); full-replace `POST /rankings` rejects lists over 500 entries; `requireOwner` rejects path owners over 64 chars (matches the username format); `player_name` over 200 chars is rejected in all three write paths. The players table columns are `TEXT`, so 200 is an application-level sanity cap, not a schema limit.
+
+### Rate limiting: in-memory token bucket per session, mutating methods only
+- `internal/server/middleware` (`golang.org/x/time/rate`), wrapped in `main.go` around the whole mux: 5 req/s, burst 10, one bucket per session cookie value (keyed via `auth.SessionCookieName`), falling back to remote IP (port stripped) for unauthenticated requests. GET/HEAD/OPTIONS bypass it. Deliberately not persisted and not distributed — one server instance, 12 users (doc's "don't over-invest").
+
+### Transport security: no code change
+- The `Secure` cookie flag is already env-gated (`COOKIE_SECURE=true`); TLS termination itself is a property of wherever this is hosted (Caddy / platform HTTPS), per the doc. The compose `DB_URL`/`POSTGRES_PASSWORD` of `password` is a dev default on the internal docker network — fine on a LAN, must be changed if the stack is ever exposed publicly (noted in NOTES_PROGRESS).

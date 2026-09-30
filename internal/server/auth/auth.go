@@ -23,6 +23,10 @@ const (
 	bcryptCost        = 12
 )
 
+// SessionCookieName exposes the session cookie name to other middleware
+// (e.g. the per-session rate limiter).
+const SessionCookieName = sessionCookieName
+
 var dummyPasswordHash = mustHash("timing-equalization-password")
 
 type contextKey struct{}

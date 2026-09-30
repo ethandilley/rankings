@@ -81,6 +81,16 @@ var (
 // breaks (as opposed to a concrete position code like 'RB').
 const tierScopeAll = "ALL"
 
+// Input-validation caps (see ai/07-security-hardening.md): keep ranks and
+// payloads in sane ranges so a typo or hostile client cannot trigger a huge
+// rank-shift loop or a pathologically large write.
+const (
+	maxRank          = 500
+	maxRankingList   = 500
+	maxOwnerLen      = 64
+	maxPlayerNameLen = 200
+)
+
 // flexPositions are the positions counted as FLEX-eligible. The league
 // starts RB/WR/TE in its flex slots (see NOTES_DECISIONS.md, doc 03).
 var flexPositions = []string{"RB", "WR", "TE"}
@@ -137,6 +147,10 @@ func (h *RankingsService) requireOwner(w http.ResponseWriter, r *http.Request) (
 	}
 
 	owner := r.PathValue("owner")
+	if len(owner) > maxOwnerLen {
+		http.Error(w, "owner is too long", http.StatusBadRequest)
+		return "", false
+	}
 	if owner != user.Username {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return "", false
@@ -332,12 +346,20 @@ func (h *RankingsService) postRankings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "rankings must not be empty", http.StatusBadRequest)
 		return
 	}
+	if len(in.Rankings) > maxRankingList {
+		http.Error(w, fmt.Sprintf("rankings must not exceed %d players", maxRankingList), http.StatusBadRequest)
+		return
+	}
 
 	// Resolve every entry to a player id before touching the database, so a
 	// bad name fails the request without deleting anything. In the request
 	// body player_id is a plain int64; zero means "not provided".
 	ids := make([]int64, len(in.Rankings))
 	for i, pr := range in.Rankings {
+		if len(pr.PlayerName) > maxPlayerNameLen {
+			http.Error(w, fmt.Sprintf("rankings[%d]: player_name is too long", i), http.StatusBadRequest)
+			return
+		}
 		var idPtr *int64
 		if pr.PlayerID != 0 {
 			idPtr = &pr.PlayerID
@@ -405,8 +427,12 @@ func (h *RankingsService) moveRanking(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "exactly one of player_id or player_name is required", http.StatusBadRequest)
 		return
 	}
-	if req.Rank < 1 {
-		http.Error(w, "rank must be >= 1", http.StatusBadRequest)
+	if req.Rank < 1 || req.Rank > maxRank {
+		http.Error(w, fmt.Sprintf("rank must be between 1 and %d", maxRank), http.StatusBadRequest)
+		return
+	}
+	if len(req.PlayerName) > maxPlayerNameLen {
+		http.Error(w, "player_name is too long", http.StatusBadRequest)
 		return
 	}
 
@@ -472,8 +498,12 @@ func (h *RankingsService) addPlayer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "exactly one of player_id or player_name is required", http.StatusBadRequest)
 		return
 	}
-	if req.Rank != nil && *req.Rank < 1 {
-		http.Error(w, "rank must be >= 1", http.StatusBadRequest)
+	if req.Rank != nil && (*req.Rank < 1 || *req.Rank > maxRank) {
+		http.Error(w, fmt.Sprintf("rank must be between 1 and %d", maxRank), http.StatusBadRequest)
+		return
+	}
+	if len(req.PlayerName) > maxPlayerNameLen {
+		http.Error(w, "player_name is too long", http.StatusBadRequest)
 		return
 	}
 

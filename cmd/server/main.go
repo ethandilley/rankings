@@ -9,6 +9,7 @@ import (
 
 	"github.com/ethandilley/rankings/internal/server/admin"
 	"github.com/ethandilley/rankings/internal/server/auth"
+	"github.com/ethandilley/rankings/internal/server/middleware"
 	"github.com/ethandilley/rankings/internal/server/players"
 	"github.com/ethandilley/rankings/internal/server/rankings"
 	"github.com/ethandilley/rankings/internal/server/trades"
@@ -40,8 +41,12 @@ func main() {
 	tradesService.Register(mux)
 	mux.Handle("/", http.FileServer(http.Dir(staticDir())))
 
+	// 5 requests/second per session with a burst of 10: plenty for a human
+	// or the UI, enough of a wall against retry-loops and scripts.
+	limiter := middleware.NewRateLimiter(5, 10)
+
 	log.Println("server listening on :8080")
-	if err := http.ListenAndServe(":8080", withCORS(mux)); err != nil {
+	if err := http.ListenAndServe(":8080", limiter.Wrap(withCORS(mux))); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
 }

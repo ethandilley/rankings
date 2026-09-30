@@ -7,7 +7,7 @@ verified, what was skipped, and the commit hash.
 
 ## 02 — Data Model: Rankings Reference Real Players
 
-**Commit:** `6409d7a`
+**Commit:** `0cdc0dc`
 
 ### What was done
 - **Migrations (all applied, `goose_db_version` = 7):**
@@ -68,7 +68,7 @@ verified, what was skipped, and the commit hash.
 
 ## 03 — Positional Rankings
 
-**Commit:** `3783d65`
+**Commit:** `d4e7b49`
 
 ### What was done
 - **sqlc** (`db/queries/rankings.sql`, regenerated `internal/db/rankings.sql.go`):
@@ -118,7 +118,7 @@ verified, what was skipped, and the commit hash.
 
 ## 04 — Tiers
 
-**Commit:** `070f83a`
+**Commit:** `b5c6f55`
 
 ### What was done
 - **Migration `0008_tier_breaks.sql` (applied, `goose_db_version` = 8):**
@@ -174,7 +174,7 @@ verified, what was skipped, and the commit hash.
 
 ## 05 — Trade Suggestions
 
-**Commit:** `5c48ed0`
+**Commit:** `9a9b60b`
 
 ### What was done
 - **sqlc** (`db/queries/trade_suggestions.sql`, regenerated
@@ -237,7 +237,7 @@ verified, what was skipped, and the commit hash.
 
 ## 06 — Fix the Players Service & Automate the ESPN Sync
 
-**Commit:** `e0b3a64`
+**Commit:** `d3f61fe`
 
 ### What was done
 - Part 1 (minimal players service) confirmed already shipped by doc 02 —
@@ -295,3 +295,53 @@ verified, what was skipped, and the commit hash.
 - Installing the daily cron: no `crontab` on this machine. Recommended line
   for the machine running the stack:
   `0 12 * * * cd /home/ethan/code/rankings && docker compose --env-file .envrc --profile sync run --rm espn-sync >> /tmp/espn-sync.log 2>&1`
+
+## 07 — Security Hardening
+
+### What was done
+- `.envrc` history purge: `git filter-branch` removed `.envrc` from every
+  commit on `main` and `01` (it was committed in the early "stash" commits
+  and the GitHub repo is public); old objects pruned locally (`refs/original`,
+  reflog, `gc --prune=now`); both branches force-pushed. The recorded doc
+  commit hashes below were re-derived from the rewritten history (matched by
+  commit message).
+- Input validation in `internal/server/rankings/rankings.go`: `rank` capped
+  at 500 on `move`/`add`, full-replace list capped at 500 entries, path
+  `owner` capped at 64 chars, `player_name` capped at 200 chars in all write
+  paths (constants `maxRank`/`maxRankingList`/`maxOwnerLen`/`maxPlayerNameLen`).
+- Rate limiting: new `internal/server/middleware` package — in-memory
+  `golang.org/x/time/rate` token bucket (5 req/s, burst 10) per session
+  cookie (fallback: remote IP), applied to POST/PUT/PATCH/DELETE only, 429 +
+  `Retry-After: 1` when exhausted. Wired in `cmd/server/main.go`.
+- Verified already-satisfied items: CORS allow-list + same-origin static
+  serving (doc 01), session cookies HttpOnly/SameSite=Lax with env-gated
+  `Secure` (doc 01), player_id existence checks translating to 404/400
+  instead of leaking Postgres constraint text (doc 02), trades `limit`
+  clamping (doc 05).
+
+### What was verified
+- `go build ./...`, `go vet ./...`, `go test ./...` green, including new
+  `internal/server/middleware` tests (burst-then-429, per-session
+  isolation, IP fallback with port stripped, GETs bypass the limiter).
+- Smoke after rebuild: OPTIONS from `http://localhost:8081` gets
+  `Access-Control-Allow-Origin` + `Allow-Credentials: true`; from
+  `http://evil.com` or with no Origin the headers are absent.
+- `rank=501` and `rank=0` on add/move → 400 `rank must be between 1 and
+  500`; 65-char owner path → 400; 201-char `player_name` → 400; 501-entry
+  full replace → 400.
+- Rate limit live: 15 rapid mutating requests with a session → exactly
+  10×400 then 5×429 (with `Retry-After`); 3 s later the next request
+  succeeds; 8 consecutive GETs all 200.
+- `GET /` and authenticated `GET /rankings` still 200.
+
+### What was skipped / deferred
+- Rotating the leaked ESPN session cookie remains the single most urgent
+  manual step: the old `ESPN_S2`/`ESPN_SWID` values are still valid until
+  you log out/in on fantasy.espn.com, and they are still readable by anyone
+  who cloned the public repo before the force-push.
+- HTTPS: no code change; set `COOKIE_SECURE=true` and terminate TLS at the
+  host (Caddy / platform HTTPS) if this is ever public-facing. The compose
+  dev DB credentials (`user`/`password` on the internal docker network) must
+  be changed in that case too.
+
+**Commit:** `0d76f80`
