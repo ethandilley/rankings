@@ -10,6 +10,27 @@ services:
         condition: service_healthy
     environment:
       - DB_URL=postgres://user:password@postgres:5432/rankings?sslmode=disable
+      # Needed by POST /admin/sync-players. Pass --env-file .envrc to compose
+      # so real values interpolate; empty defaults keep plain `up` working.
+      - ESPN_S2=${ESPN_S2:-}
+      - ESPN_SWID=${ESPN_SWID:-}
+      - ESPN_LEAGUE_ID=${ESPN_LEAGUE_ID:-260889507}
+      - ESPN_SEASON=${ESPN_SEASON:-2026}
+  espn-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: ["sync"]
+    command: ["/bin/espn-sync"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB_URL=postgres://user:password@postgres:5432/rankings?sslmode=disable
+      - ESPN_S2=${ESPN_S2}
+      - ESPN_SWID=${ESPN_SWID}
+      - ESPN_LEAGUE_ID=${ESPN_LEAGUE_ID:-260889507}
+      - ESPN_SEASON=${ESPN_SEASON:-2026}
   postgres:
     image: postgres:18
     environment:

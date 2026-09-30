@@ -13,6 +13,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/ethandilley/rankings/internal/db"
+	"github.com/ethandilley/rankings/internal/espn"
 	"github.com/ethandilley/rankings/internal/server/auth"
 )
 
@@ -20,6 +21,7 @@ type AdminService struct {
 	conn *pgx.Conn
 	q    *db.Queries
 	auth *auth.AuthService
+	espn *espn.Service
 }
 
 func NewAdminService(conn *pgx.Conn, auth *auth.AuthService) *AdminService {
@@ -27,6 +29,7 @@ func NewAdminService(conn *pgx.Conn, auth *auth.AuthService) *AdminService {
 		conn: conn,
 		q:    db.New(conn),
 		auth: auth,
+		espn: espn.New(conn, espn.ConfigFromEnv()),
 	}
 }
 
@@ -36,6 +39,28 @@ func (s *AdminService) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/users/{username}/password", s.auth.RequireAuth(s.requireAdmin(s.resetPassword)))
 	mux.HandleFunc("PATCH /admin/users/{username}/admin", s.auth.RequireAuth(s.requireAdmin(s.setAdmin)))
 	mux.HandleFunc("DELETE /admin/users/{username}", s.auth.RequireAuth(s.requireAdmin(s.deleteUser)))
+	mux.HandleFunc("POST /admin/sync-players", s.auth.RequireAuth(s.requireAdmin(s.syncPlayers)))
+}
+
+// syncPlayers runs the ESPN roster sync. ?dry_run=true reports the changes
+// without writing to the database.
+func (s *AdminService) syncPlayers(w http.ResponseWriter, r *http.Request) {
+	dryRun := false
+	if v := r.URL.Query().Get("dry_run"); v == "true" || v == "1" {
+		dryRun = true
+	}
+
+	report, err := s.espn.Sync(r.Context(), dryRun)
+	if err != nil {
+		if errors.Is(err, espn.ErrFetchFailed) {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, report)
 }
 
 type userResponse struct {

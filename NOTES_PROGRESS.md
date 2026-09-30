@@ -234,3 +234,64 @@ verified, what was skipped, and the commit hash.
 - No "propose this trade" workflow — v1 is a conversation-starter per the doc.
 - Multi-candidate pairing (considering the 2nd/3rd best X/Y per side) not
   done; the single-largest-gap candidate per side is what ships.
+
+## 06 — Fix the Players Service & Automate the ESPN Sync
+
+**Commit:** `e0b3a64`
+
+### What was done
+- Part 1 (minimal players service) confirmed already shipped by doc 02 —
+  `internal/server/players/players.go` compiles, is auth-gated, and is
+  registered; no code changes.
+- Secrets: `.envrc` added to `.gitignore` and untracked (`git rm --cached`);
+  committed `.envrc.example` with placeholders and where-to-find values.
+- New `internal/espn` package — Go port of `scripts/load_players.py`:
+  `client.go` (authenticated GET to `lm-api-reads.fantasy.espn.com`; 403 →
+  "rotate ESPN_S2/ESPN_SWID" error), `roster.go` (pro-team / position /
+  team→username maps; `BuildRoster` keyed by `players.NormalizeName`),
+  `sync.go` (pure table-tested `PlanSync` diff + transactional apply, JSON
+  `Report`).
+- `db/queries/espn_sync.sql`: SyncListPlayers / SyncInsertPlayer /
+  SyncUpdatePlayer / SyncDeletePlayer / SyncReferencedPlayerIDs; sqlc
+  regenerated.
+- `POST /admin/sync-players` (RequireAuth + requireAdmin, `?dry_run=true`
+  supported); ESPN-side failure → 502 with the cause, DB-side → 500.
+- `cmd/espn-sync` one-shot binary sharing the same Service (`-dry-run` flag,
+  script-style summary for cron logs); Dockerfile builds both binaries;
+  compose gains an `espn-sync` service behind the `sync` profile.
+- Deleted `scripts/load_players.py` (and `scripts/__pycache__`); the Go port
+  replaces it with two deliberate improvements: K (5) and D/ST (16) are now
+  synced (the script's map only had QB/RB/WR/TE), and `player_name`
+  participates in change detection.
+
+### What was verified
+- `go build ./...`, `go vet ./...`, `go test ./...` green; `internal/espn`
+  table tests cover PlanSync (insert / delete / owner / team / drafted_at /
+  name-only changes) and BuildRoster (K + D/ST mapping, unknown position
+  skipped with warning, unknown fantasy team → no owner, unknown pro team →
+  FA, drafted_at from draft picks).
+- Live API probe before writing the client: 12 teams (IDs 10–25), position
+  ids 1–5 and 16, 180 draft picks, current `.envrc` cookies still valid.
+- Smoke (`docker compose --env-file .envrc up -d --build server`):
+  unauthenticated → 401; non-admin (tommy) → 403; `dry_run=true` as ethan →
+  internally consistent report: espn 189 = unchanged 139 + inserted 26 +
+  updated 24; db 193 = unchanged 139 + updated 24 + deleted 5 + skipped 25.
+- Real run applied 26 inserts / 24 updates / 5 deletes → `players` 193 → 214.
+  K/D/ST rows now carry owners and pick numbers (e.g. Ravens D/ST → hisrchel
+  pick 161; Brandon Aubrey → vibhav pick 86). The 5 deletions
+  (Antonio Williams, Chris Bell, Kendrick Bourne, Michael Mayer, Mike
+  Gesicki) succeeded under the NO-ACTION FK, proving no rankings row
+  referenced them.
+- Second `dry_run=true`: 0 / 0 / 0, unchanged 189, same 25 permanent skips —
+  idempotent.
+- `docker compose --env-file .envrc --profile sync run --rm espn-sync` (and
+  the `/bin/espn-sync --dry-run` flag form) both run clean against the live
+  API. `GET /` still 200.
+
+### What was skipped / deferred
+- Manual ESPN session rotation: the previously committed `ESPN_S2`/`ESPN_SWID`
+  are leaked. Log out/in on fantasy.espn.com and update `.envrc` — human
+  step, not done in this session.
+- Installing the daily cron: no `crontab` on this machine. Recommended line
+  for the machine running the stack:
+  `0 12 * * * cd /home/ethan/code/rankings && docker compose --env-file .envrc --profile sync run --rm espn-sync >> /tmp/espn-sync.log 2>&1`

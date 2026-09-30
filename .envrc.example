@@ -1,0 +1,15 @@
+# Copy this file to .envrc and fill in real values. .envrc is gitignored;
+# never commit real credentials.
+
+# Postgres connection string for the server and sync tools.
+DB_URL=postgres://user:password@postgres:5432/rankings?sslmode=disable
+
+# ESPN session cookies. Log in at https://fantasy.espn.com, open DevTools
+# (Application -> Cookies) and copy the espn_s2 and SWID values. Rotate them
+# whenever the API starts returning 403.
+ESPN_S2=
+ESPN_SWID=
+
+# League config (the defaults below match this league).
+ESPN_LEAGUE_ID=260889507
+ESPN_SEASON=2026

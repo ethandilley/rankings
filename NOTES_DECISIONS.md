@@ -100,3 +100,29 @@ Decisions made while implementing the `ai/` docs, with reasoning. Appended per s
 ### sqlc type-inference workarounds in `trade_suggestions.sql`
 - `limit` is a reserved word, so the param is `sqlc.arg(row_limit)`.
 - sqlc cannot infer types of CTE/computed expressions (float division came back as `int32`/`interface{}`), so every computed column carries an explicit cast: `::float8` for normalized ranks/spread, `::int` for `COUNT(*)`, `::text` for the `array_agg(...)[1]` raters.
+
+## doc 06 — Fix the Players Service & Automate the ESPN Sync
+
+### Part 1 (players service) was already done in doc 02
+- Doc 02 shipped `internal/server/players/players.go` as a compiling, auth-gated read-only service (`GET /players` + `GET /players/search` autocomplete) with `db/queries/players.sql` (ListPlayers/GetPlayerByID/SearchPlayersByName/FindPlayersByName) registered in `main.go`. Doc 06's Part 1 asked for a strict subset of that — nothing to implement; recorded here so the doc's status is accurate.
+
+### Sync logic ported to Go rather than shelled out to Python
+- The doc allows either. Subprocess is a dead end on this stack: the server image is `golang:1.27.0-alpine` with no python (the Dockerfile builds only `/bin/server`), and the host `python3` has no `psycopg2`. The Go port lives in `internal/espn` (`client.go` HTTP + parse, `roster.go` maps + `BuildRoster`, `sync.go` pure `PlanSync` + transactional apply); `cmd/espn-sync` (one-shot, for cron) and `POST /admin/sync-players` share the same `espn.Service`, so the fetch/diff logic exists in exactly one place. Name normalization reuses `players.NormalizeName` so ESPN↔DB matching stays single-sourced.
+
+### Extended the position map with K (5) and D/ST (16)
+- The Python script's `POSITION_MAP` only had QB/RB/WR/TE, so every kicker and D/ST on a roster was silently skipped and could never be updated or assigned an owner. The live API returns `defaultPositionId` 5 (K) and 16 (D/ST); the port maps both. The first real run assigned owners to 24 K/D/ST rows that doc 02's backfill had created with `drafted_by_username = NULL`.
+
+### Owners are usernames, not display names
+- The script mapped fantasy team IDs to display names ("Ethan Stone"); the players table has stored usernames since migration 0005. `teamOwnerMap` in `roster.go` maps the 12 team IDs to usernames, verified against the distinct `drafted_by_username` values in the DB.
+
+### `player_name` participates in change detection
+- The script compared owner/position/team/drafted_at but wrote `player_name` unconditionally on update, so a pure ESPN name correction counted as "unchanged" and the DB kept the stale display name. `PlanSync` diffs all five columns — strictly closer to "make the players table match the ESPN rosters".
+
+### Deletion guard: skip players referenced by `rankings`
+- The FK `rankings_player_id_fkey` is already NO ACTION (doc 02), which is what the doc recommends. The sync loads `SELECT DISTINCT player_id FROM rankings` once per run, refuses to delete referenced players, and reports them in `delete_skipped` / `SKIP DELETE ...` lines. The NO-ACTION FK independently backstops the guard: a delete that ever slipped through the guard would fail with an FK violation instead of corrupting a ranked board.
+
+### Secrets: `.envrc` untracked, `.envrc.example` committed
+- `.envrc` added to `.gitignore` and removed from the index. `.envrc.example` has placeholders plus where to find the real cookie values. The previously committed values are leaked and must be treated as such: log out/in on fantasy.espn.com to rotate the session (manual human step, flagged in NOTES_PROGRESS).
+
+### Scheduling: one-shot compose service + documented cron line
+- `espn-sync` compose service (profile `sync`, same image, `command: ["/bin/espn-sync"]`), invoked as `docker compose --env-file .envrc --profile sync run --rm espn-sync`. There is no `crontab` binary on this machine, so the daily cron line is documented in NOTES_PROGRESS rather than installed. Gotcha: `docker compose run SERVICE --flag` replaces the command, so flags must be prefixed with the binary (`run --rm espn-sync /bin/espn-sync --dry-run`).
