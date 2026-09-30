@@ -11,6 +11,7 @@ import (
 	"github.com/ethandilley/rankings/internal/server/auth"
 	"github.com/ethandilley/rankings/internal/server/players"
 	"github.com/ethandilley/rankings/internal/server/rankings"
+	"github.com/ethandilley/rankings/internal/server/trades"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -29,12 +30,14 @@ func main() {
 	rankingsService := rankings.NewRankingsService(conn, authService)
 	playerService := players.NewPlayersService(conn, authService)
 	adminService := admin.NewAdminService(conn, authService)
+	tradesService := trades.NewTradesService(conn, authService)
 
 	mux := http.NewServeMux()
 	authService.Register(mux)
 	rankingsService.Register(mux)
 	playerService.Register(mux)
 	adminService.Register(mux)
+	tradesService.Register(mux)
 	mux.Handle("/", http.FileServer(http.Dir(staticDir())))
 
 	log.Println("server listening on :8080")

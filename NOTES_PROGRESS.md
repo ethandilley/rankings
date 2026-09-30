@@ -169,3 +169,68 @@ verified, what was skipped, and the commit hash.
   tiers from the fetched breaks itself (single source of truth for placement
   and labels).
 - Tier UI is owner-only by design; read-only boards show plain ranks.
+
+---
+
+## 05 — Trade Suggestions
+
+**Commit:** `5c48ed0`
+
+### What was done
+- **sqlc** (`db/queries/trade_suggestions.sql`, regenerated
+  `internal/db/trade_suggestions.sql.go`): `ListNormalizedRankings(min_ranked_players)`
+  (rank / total per owner), `ListDraftedPlayers` (all players + nullable
+  `drafted_by_username`), `ListExcludedOwners(min_ranked_players)`, and
+  `PlayerDisagreement(row_limit, min_ranked_players)` — CTE over qualifying
+  owners, `HAVING COUNT(*) >= 2`, spread desc, raters via
+  `array_agg(owner ORDER BY normalized_rank[, DESC], owner)[1]` for
+  deterministic ties. Explicit `::float8`/`::int`/`::text` casts everywhere
+  because sqlc can't infer CTE expression types.
+- **Trades service** (`internal/server/trades/trades.go`):
+  `GET /trade-suggestions/disagreements?limit=` (leaderboard, max − min
+  spread) and `GET /trade-suggestions/pairwise[?owner=&limit=]` (two-sided
+  trade matching per the doc: X = largest `A_norm - B_norm` gap over A's
+  drafted players, Y = symmetric, both gaps and both gains strictly > 0,
+  `combined = aGain + bGain`, sorted desc with deterministic tie-breaks).
+  Requested owner is always side A; league-wide pairs canonicalized
+  `a < b`. Unknown owner → 404, sub-threshold owner → 400, bad `limit`
+  (0/101/non-int) → 400. Both responses carry `excluded_owners` and
+  `min_ranked_players`; suggestions carry the four raw normalized ranks for
+  UI transparency. Pure helpers `ownerPairs`, `computePairwiseTrade`,
+  `bestDesiredOtherSide`, `parseLimit` are table-tested (`trades_test.go`);
+  the bGain sign bug (`b_norm[x] - b_norm[y]` vs correct
+  `b_norm[y] - b_norm[x]`) was caught by the tests.
+- **Wiring** (`cmd/server/main.go`): `tradesService.Register(mux)`.
+- **Frontend** (`web/trades.html`, new; `web/index.html` nav): dark-theme
+  page in the existing design language — "just me" (default, uses the
+  logged-in username) / "whole league" scope toggle, suggestion cards
+  ("A gives X ↔ B gives Y" + combined/gain scores + each owner's normalized
+  rank of both players underneath), excluded-owners note, and the
+  disagreement table (player, pos/team, ranked-by count, best/worst/spread,
+  biggest fan/skeptic). `index.html` header gains a "trades" link button.
+
+### What was verified
+- `go build ./...`, `go vet ./...`, `go test ./...` green; `node --check` on
+  the extracted JS of `trades.html` and `index.html` passes.
+- First draft of the disagreement SQL 500'd (`MIN(...) WITHIN GROUP (ORDER
+  BY norm, owner)` → `function min(text, double precision, text) does not
+  exist`); rewrote with `array_agg(...) [1]` and regenerated.
+- Smoke test (`docker compose up -d --build` + curl): no cookie → 401 on both
+  endpoints; `limit=0` and `limit=101` → 400; `?owner=nobody` → 404;
+  `trades.html` serves.
+- `disagreements?limit=3`: top row Jahmyr Gibbs spread 0.0333 — independently
+  re-derived in psql (10 owners at #1 → best 1/180; anwar #7 → worst 7/180;
+  "eric" is the alphabetical tie-break among the ten #1 rankers). ✓
+- `pairwise?owner=ethan`: one suggestion (Gibbs ↔ Jaxon Smith-Njigba with
+  tommy); every gain re-derived by hand from the raw ranks. ✓
+- `pairwise` (league-wide): exactly 1 valid trade across all 66 owner pairs —
+  confirmed by an independent SQL port of the whole algorithm
+  (`ROW_NUMBER()` per side, both-gains > 0): same single ethan↔tommy trade,
+  same scores (a 0.0056, b 0.0167, combined 0.0222). ✓
+
+### What was skipped / deferred
+- Stddev-based disagreement metric (doc: ship max − min first, revisit if
+  noisy).
+- No "propose this trade" workflow — v1 is a conversation-starter per the doc.
+- Multi-candidate pairing (considering the 2nd/3rd best X/Y per side) not
+  done; the single-largest-gap candidate per side is what ships.

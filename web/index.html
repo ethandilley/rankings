@@ -638,6 +638,7 @@
     <span class="status-text" id="userName"></span>
     <button class="link-btn" id="logoutBtn" type="button" hidden>log out</button>
     <button class="link-btn" id="settingsBtn" type="button">connection</button>
+    <button class="link-btn" id="tradesBtn" type="button">trades</button>
     <button class="link-btn" id="adminBtn" type="button" hidden>admin</button>
   </div>
 </header>
@@ -917,6 +918,7 @@
     newBoardUser: document.getElementById('newBoardUser'),
     userName: document.getElementById('userName'),
     logoutBtn: document.getElementById('logoutBtn'),
+    tradesBtn: document.getElementById('tradesBtn'),
     adminBtn: document.getElementById('adminBtn'),
   };
 
@@ -1786,6 +1788,10 @@
       await api.logout();
     } catch (err) {}
     window.location.replace('login.html');
+  });
+
+  el.tradesBtn.addEventListener('click', () => {
+    window.location.replace('trades.html');
   });
 
   el.adminBtn.addEventListener('click', () => {

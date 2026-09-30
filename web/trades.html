@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Suggestions — Draft Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #121212;
+    --bg-raised: #1a1a1a;
+    --bg-hover: #232323;
+    --text: #e8e8e8;
+    --text-soft: #9a9a9a;
+    --line: #2c2c2c;
+    --accent: #5b9dff;
+    --accent-deep: #4986e6;
+    --danger: #e0554f;
+    --danger-bg: #3a2321;
+    --success: #4caf7d;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body { min-height: 100vh; }
+
+  .app-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 24px clamp(16px, 4vw, 48px) 18px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+    flex-wrap: wrap;
+  }
+
+  .wordmark {
+    font-weight: 600;
+    font-size: clamp(22px, 3vw, 26px);
+    letter-spacing: -0.01em;
+    margin: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .wordmark .num { color: var(--accent); font-size: 0.6em; font-weight: 500; }
+
+  .tagline {
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: var(--text-soft);
+    max-width: 60ch;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--line);
+    flex-shrink: 0;
+  }
+  .status-dot.ok { background: var(--success); }
+  .status-dot.bad { background: var(--danger); }
+
+  .status-text { font-size: 12.5px; color: var(--text-soft); }
+
+  button.link-btn {
+    background: none;
+    border: none;
+    color: var(--text-soft);
+    font-family: inherit;
+    font-size: 12.5px;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+    padding: 4px;
+  }
+  button.link-btn:hover { color: var(--text); }
+
+  .btn {
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 9px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #0d1117;
+    cursor: pointer;
+    transition: opacity 0.12s ease, transform 0.08s ease;
+  }
+  .btn:hover { opacity: 0.88; }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  .btn.secondary {
+    background: transparent;
+    color: var(--text);
+    border-color: var(--line);
+  }
+  .btn.secondary:hover { background: var(--bg-hover); }
+  .btn.secondary.active {
+    background: rgba(91,157,255,0.12);
+    border-color: var(--accent-deep);
+    color: var(--accent);
+  }
+  .btn.small { padding: 6px 10px; font-size: 12.5px; }
+
+  .page {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 28px clamp(16px, 3vw, 40px) 80px;
+  }
+
+  .excluded-note {
+    font-size: 12.5px;
+    color: var(--text-soft);
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 0 0 28px;
+  }
+  .excluded-note b { color: var(--text); font-weight: 600; }
+
+  section { margin-bottom: 40px; }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  h2.section-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+  }
+  .section-sub {
+    font-size: 12.5px;
+    color: var(--text-soft);
+    margin: 0 0 14px;
+    max-width: 75ch;
+  }
+
+  .scope-toggle { display: flex; gap: 8px; }
+
+  .trade-card {
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .trade-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 14px;
+  }
+  .trade-owner { font-weight: 600; color: var(--accent); }
+  .trade-player { font-weight: 500; }
+  .trade-player .meta { color: var(--text-soft); font-weight: 400; font-size: 12px; }
+  .trade-arrow { color: var(--text-soft); }
+  .trade-scores {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    font-size: 12.5px;
+    color: var(--text-soft);
+  }
+  .trade-scores .score b { color: var(--text); font-weight: 600; }
+  .trade-detail {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    font-size: 12.5px;
+    color: var(--text-soft);
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .trade-detail b { color: var(--text); font-weight: 600; }
+
+  .empty-state {
+    color: var(--text-soft);
+    font-size: 13.5px;
+    padding: 22px;
+    text-align: center;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+  }
+  .error-state {
+    color: var(--danger);
+    font-size: 13.5px;
+    padding: 16px;
+    text-align: center;
+    background: var(--danger-bg);
+    border: 1px solid var(--danger);
+    border-radius: 8px;
+  }
+
+  table.disagreement {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  table.disagreement th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-soft);
+    font-weight: 600;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  table.disagreement td {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  table.disagreement tr:last-child td { border-bottom: none; }
+  table.disagreement .num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.disagreement .spread { color: var(--accent); font-weight: 600; }
+  table.disagreement .rater { color: var(--text-soft); font-size: 12px; }
+
+  .toast-stack {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 50;
+    align-items: center;
+  }
+  .toast {
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 10px 16px;
+    font-size: 13px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+    animation: toast-in 0.18s ease;
+  }
+  .toast.error { border-color: var(--danger); color: var(--danger); }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div>
+    <h1 class="wordmark">Trade Suggestions <span class="num">№</span></h1>
+    <p class="tagline">Where owners disagree, and who should trade with whom. Read-only — computed from each owner's big board and draft ownership.</p>
+  </div>
+  <div class="header-right">
+    <span class="status-dot" id="statusDot"></span>
+    <span class="status-text" id="statusText">connecting…</span>
+    <span class="status-text" id="userName"></span>
+    <button class="link-btn" id="boardBtn" type="button">board</button>
+    <button class="link-btn" id="logoutBtn" type="button">log out</button>
+  </div>
+</header>
+
+<div class="page">
+  <div class="excluded-note hidden" id="excludedNote"></div>
+
+  <section>
+    <div class="section-head">
+      <div>
+        <h2 class="section-title">Two-sided trades</h2>
+      </div>
+      <div class="scope-toggle">
+        <button class="btn secondary small active" id="scopeMe" type="button">just me</button>
+        <button class="btn secondary small" id="scopeLeague" type="button">whole league</button>
+      </div>
+    </div>
+    <p class="section-sub">Each card is a trade both sides win: <b>A</b> gives a player <b>B</b> rates higher than A does, and <b>B</b> gives a player <b>A</b> rates higher than B does. Scores are normalized-rank gaps (0.0 = best, 1.0 = worst), so bigger is better.</p>
+    <div id="pairwiseContent"><div class="empty-state">Loading…</div></div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2 class="section-title">Most-disagreed players</h2>
+    </div>
+    <p class="section-sub">Players whose normalized rank swings the most across owners who ranked them (at least two). Big spread = a candidate to overpay for in a trade.</p>
+    <div id="disagreementContent"><div class="empty-state">Loading…</div></div>
+  </section>
+</div>
+
+<div class="toast-stack" id="toastStack"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  const DEFAULT_API_BASE = (window.location.protocol === 'http:' || window.location.protocol === 'https:') ? window.location.origin : 'http://localhost:8081';
+  let API_BASE = localStorage.getItem('rankings_api_base') || DEFAULT_API_BASE;
+
+  const el = {
+    statusDot: document.getElementById('statusDot'),
+    statusText: document.getElementById('statusText'),
+    userName: document.getElementById('userName'),
+    boardBtn: document.getElementById('boardBtn'),
+    logoutBtn: document.getElementById('logoutBtn'),
+    excludedNote: document.getElementById('excludedNote'),
+    scopeMe: document.getElementById('scopeMe'),
+    scopeLeague: document.getElementById('scopeLeague'),
+    pairwiseContent: document.getElementById('pairwiseContent'),
+    disagreementContent: document.getElementById('disagreementContent'),
+    toastStack: document.getElementById('toastStack'),
+  };
+
+  let currentUser = null;
+  let scope = 'me';
+
+  function toast(message, kind) {
+    const t = document.createElement('div');
+    t.className = 'toast' + (kind ? ' ' + kind : '');
+    t.textContent = message;
+    el.toastStack.appendChild(t);
+    setTimeout(() => {
+      t.style.transition = 'opacity 0.25s ease';
+      t.style.opacity = '0';
+      setTimeout(() => t.remove(), 260);
+    }, 3600);
+  }
+
+  function friendlyError(status, bodyText) {
+    const trimmed = (bodyText || '').trim();
+    switch (status) {
+      case 400: return trimmed || 'That request was missing something required.';
+      case 401: return 'You need to log in first.';
+      case 404: return trimmed || 'Owner not found.';
+      case 500: return 'Something went wrong on the server. Try again.';
+      default: return trimmed || ('Request failed (' + status + ').');
+    }
+  }
+
+  async function apiRequest(path, options) {
+    const res = await fetch(API_BASE.replace(/\/$/, '') + path, Object.assign({
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    }, options));
+
+    if (!res.ok) {
+      const bodyText = await res.text().catch(() => '');
+      if (res.status === 401 && !path.startsWith('/auth/')) {
+        window.location.replace('login.html');
+        return new Promise(() => {});
+      }
+      const err = new Error(friendlyError(res.status, bodyText));
+      err.status = res.status;
+      throw err;
+    }
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  }
+
+  function setStatus(ok, text) {
+    el.statusDot.className = 'status-dot ' + (ok ? 'ok' : 'bad');
+    el.statusText.textContent = text;
+  }
+
+  function fmtNorm(v) {
+    return Number.isFinite(v) ? v.toFixed(2) : '—';
+  }
+
+  function fmtScore(v) {
+    return Number.isFinite(v) ? v.toFixed(2) : '—';
+  }
+
+  function playerSpan(p) {
+    const span = document.createElement('span');
+    span.className = 'trade-player';
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    meta.textContent = (p.position || '?') + (p.team ? ' · ' + p.team : '');
+    span.appendChild(document.createTextNode(p.player_name));
+    span.appendChild(meta);
+    return span;
+  }
+
+  function renderExcluded(excludedOwners) {
+    if (!excludedOwners || !excludedOwners.length) {
+      el.excludedNote.classList.add('hidden');
+      return;
+    }
+    el.excludedNote.classList.remove('hidden');
+    el.excludedNote.innerHTML = '';
+    const label = document.createElement('b');
+    label.textContent = 'Excluded from computation (fewer than 20 ranked players): ';
+    el.excludedNote.appendChild(label);
+    el.excludedNote.appendChild(document.createTextNode(excludedOwners.join(', ')));
+  }
+
+  function renderPairwise(data) {
+    el.pairwiseContent.innerHTML = '';
+    if (!data.suggestions || !data.suggestions.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = scope === 'me'
+        ? 'No mutually beneficial trades found between you and the rest of the league right now.'
+        : 'No mutually beneficial trades found across the whole league right now.';
+      el.pairwiseContent.appendChild(empty);
+      return;
+    }
+
+    for (const s of data.suggestions) {
+      const card = document.createElement('div');
+      card.className = 'trade-card';
+
+      const main = document.createElement('div');
+      main.className = 'trade-main';
+
+      const aOwner = document.createElement('span');
+      aOwner.className = 'trade-owner';
+      aOwner.textContent = s.owner_a;
+      const aVerb = document.createElement('span');
+      aVerb.textContent = 'gives';
+      const arrow = document.createElement('span');
+      arrow.className = 'trade-arrow';
+      arrow.textContent = '↔';
+      const bOwner = document.createElement('span');
+      bOwner.className = 'trade-owner';
+      bOwner.textContent = s.owner_b;
+      const bGives = document.createElement('span');
+      bGives.textContent = 'gives';
+
+      main.appendChild(aOwner);
+      main.appendChild(aVerb);
+      main.appendChild(playerSpan(s.owner_a_gives));
+      main.appendChild(arrow);
+      main.appendChild(bOwner);
+      main.appendChild(bGives);
+      main.appendChild(playerSpan(s.owner_b_gives));
+      card.appendChild(main);
+
+      const scores = document.createElement('div');
+      scores.className = 'trade-scores';
+      const mkScore = (label, value) => {
+        const span = document.createElement('span');
+        span.className = 'score';
+        const b = document.createElement('b');
+        b.textContent = value;
+        span.appendChild(b);
+        span.appendChild(document.createTextNode(' ' + label));
+        return span;
+      };
+      scores.appendChild(mkScore('combined', fmtScore(s.combined_score)));
+      scores.appendChild(mkScore(s.owner_a + ' gain', fmtScore(s.a_gain_score)));
+      scores.appendChild(mkScore(s.owner_b + ' gain', fmtScore(s.b_gain_score)));
+      card.appendChild(scores);
+
+      const detail = document.createElement('div');
+      detail.className = 'trade-detail';
+      const aLine = document.createElement('div');
+      const aLineB = document.createElement('b');
+      aLineB.textContent = s.owner_a + ': ';
+      aLine.appendChild(aLineB);
+      aLine.appendChild(document.createTextNode(
+        'ranks ' + s.owner_a_gives.player_name + ' at ' + fmtNorm(s.a_norm_of_a_gives)
+        + ', ranks ' + s.owner_b_gives.player_name + ' at ' + fmtNorm(s.a_norm_of_b_gives)
+        + ' — prefers receiving it'));
+      const bLine = document.createElement('div');
+      const bLineB = document.createElement('b');
+      bLineB.textContent = s.owner_b + ': ';
+      bLine.appendChild(bLineB);
+      bLine.appendChild(document.createTextNode(
+        'ranks ' + s.owner_a_gives.player_name + ' at ' + fmtNorm(s.b_norm_of_a_gives)
+        + ', ranks ' + s.owner_b_gives.player_name + ' at ' + fmtNorm(s.b_norm_of_b_gives)
+        + ' — prefers receiving it'));
+      detail.appendChild(aLine);
+      detail.appendChild(bLine);
+      card.appendChild(detail);
+
+      el.pairwiseContent.appendChild(card);
+    }
+  }
+
+  function renderDisagreement(data) {
+    el.disagreementContent.innerHTML = '';
+    if (!data.players || !data.players.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = 'No players ranked by two or more qualifying owners.';
+      el.disagreementContent.appendChild(empty);
+      return;
+    }
+
+    const table = document.createElement('table');
+    table.className = 'disagreement';
+
+    const head = document.createElement('tr');
+    for (const th of ['#', 'Player', 'Ranked by', 'Best', 'Worst', 'Spread', 'Best by', 'Worst by']) {
+      const cell = document.createElement('th');
+      cell.textContent = th;
+      if (['Ranked by', 'Best', 'Worst', 'Spread'].includes(th)) cell.className = 'num';
+      head.appendChild(cell);
+    }
+    table.appendChild(head);
+
+    data.players.forEach((p, i) => {
+      const tr = document.createElement('tr');
+
+      const rankCell = document.createElement('td');
+      rankCell.className = 'num';
+      rankCell.textContent = String(i + 1);
+
+      const playerCell = document.createElement('td');
+      const name = document.createElement('span');
+      name.textContent = p.player_name;
+      name.style.fontWeight = '600';
+      const meta = document.createElement('span');
+      meta.className = 'rater';
+      meta.textContent = ' ' + (p.position || '?') + (p.team ? ' · ' + p.team : '');
+      playerCell.appendChild(name);
+      playerCell.appendChild(meta);
+
+      const countCell = document.createElement('td');
+      countCell.className = 'num';
+      countCell.textContent = String(p.num_owners_ranked);
+
+      const bestCell = document.createElement('td');
+      bestCell.className = 'num';
+      bestCell.textContent = fmtNorm(p.best_normalized_rank);
+
+      const worstCell = document.createElement('td');
+      worstCell.className = 'num';
+      worstCell.textContent = fmtNorm(p.worst_normalized_rank);
+
+      const spreadCell = document.createElement('td');
+      spreadCell.className = 'num spread';
+      spreadCell.textContent = fmtNorm(p.disagreement_spread);
+
+      const bestBy = document.createElement('td');
+      bestBy.className = 'rater';
+      bestBy.textContent = p.highest_rater;
+
+      const worstBy = document.createElement('td');
+      worstBy.className = 'rater';
+      worstBy.textContent = p.lowest_rater;
+
+      tr.appendChild(rankCell);
+      tr.appendChild(playerCell);
+      tr.appendChild(countCell);
+      tr.appendChild(bestCell);
+      tr.appendChild(worstCell);
+      tr.appendChild(spreadCell);
+      tr.appendChild(bestBy);
+      tr.appendChild(worstBy);
+      table.appendChild(tr);
+    });
+
+    el.disagreementContent.appendChild(table);
+  }
+
+  async function loadPairwise() {
+    el.pairwiseContent.innerHTML = '<div class="empty-state">Loading…</div>';
+    const path = scope === 'me'
+      ? '/trade-suggestions/pairwise?owner=' + encodeURIComponent(currentUser.username)
+      : '/trade-suggestions/pairwise';
+    try {
+      const data = await apiRequest(path);
+      renderPairwise(data);
+      renderExcluded(data.excluded_owners);
+    } catch (err) {
+      const box = document.createElement('div');
+      box.className = 'error-state';
+      box.textContent = err.message;
+      el.pairwiseContent.appendChild(box);
+      setStatus(false, 'error');
+      toast(err.message, 'error');
+    }
+  }
+
+  async function loadDisagreements() {
+    el.disagreementContent.innerHTML = '<div class="empty-state">Loading…</div>';
+    try {
+      const data = await apiRequest('/trade-suggestions/disagreements?limit=25');
+      renderDisagreement(data);
+      renderExcluded(data.excluded_owners);
+    } catch (err) {
+      const box = document.createElement('div');
+      box.className = 'error-state';
+      box.textContent = err.message;
+      el.disagreementContent.appendChild(box);
+      setStatus(false, 'error');
+      toast(err.message, 'error');
+    }
+  }
+
+  function setScope(next) {
+    if (scope === next) return;
+    scope = next;
+    el.scopeMe.classList.toggle('active', scope === 'me');
+    el.scopeLeague.classList.toggle('active', scope === 'league');
+    loadPairwise();
+  }
+
+  el.scopeMe.addEventListener('click', () => setScope('me'));
+  el.scopeLeague.addEventListener('click', () => setScope('league'));
+  el.boardBtn.addEventListener('click', () => { window.location.replace('index.html'); });
+  el.logoutBtn.addEventListener('click', async () => {
+    el.logoutBtn.disabled = true;
+    try { await apiRequest('/auth/logout', { method: 'POST' }); } catch (err) {}
+    window.location.replace('login.html');
+  });
+
+  async function init() {
+    try {
+      currentUser = await apiRequest('/auth/me');
+    } catch (err) {
+      window.location.replace('login.html');
+      return;
+    }
+    el.userName.textContent = currentUser.username;
+    setStatus(true, 'connected');
+    loadPairwise();
+    loadDisagreements();
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>

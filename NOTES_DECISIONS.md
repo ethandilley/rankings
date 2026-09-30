@@ -70,3 +70,33 @@ Decisions made while implementing the `ai/` docs, with reasoning. Appended per s
 
 ### Nullable label via `sqlc.narg`
 - No prior query had a nullable column. `label` is nullable, so `InsertTierBreak` uses a named `sqlc.narg(label)` param (mixing positional `$n` with `narg` is invalid) and generates a `pgtype.Text` (`.String == ""` when NULL). Verified a label-omitted break round-trips as a real SQL NULL.
+
+## doc 05 — Trade Suggestions
+
+### Disagreement metric: max − min for v1 (as the doc recommends)
+- The doc offers stddev vs max − min and explicitly recommends shipping max − min first because it's directly explainable in the UI ("ranked as high as #3 by Ethan, as low as #145 by Rohan"). Shipped max − min (`disagreement_spread = worst_normalized_rank - best_normalized_rank`); stddev is a follow-up only if spreads prove too noisy from single outlier rankers.
+
+### `min_ranked_players = 20` threshold, applied in SQL and surfaced
+- Per the doc's edge-case section, both queries take `min_ranked_players` (const 20) as a param: the disagreement CTE and `ListNormalizedRankings` only include owners with ≥20 ranked rows, and `ListExcludedOwners` returns the rest. Both endpoints return `excluded_owners` in the response and `trades.html` renders a note, so an exclusion is never a silent bug. All 12 current owners rank 180, so the list is empty today.
+
+### `highest_rater`/`lowest_rater` via `array_agg(... ORDER BY)[1]`, not the doc's `WITHIN GROUP` sketch
+- The doc's sketch uses `array_agg(owner ORDER BY normalized_rank ASC)[1]`; my first version tried `MIN(owner) WITHIN GROUP (ORDER BY normalized_rank, owner)`, which fails: Postgres resolves an ordered-set aggregate's ORDER BY expressions as *extra function arguments*, and `min(text, double precision, text)` does not exist. `array_agg` is a regular aggregate and supports `ORDER BY` internally. The owner name is also added as a second sort key so tied rankers (e.g. ten owners with a player at #1) resolve deterministically (alphabetically first wins).
+
+### Owner pairing: requested owner is always side A; league-wide uses lexicographic order
+- `GET /trade-suggestions/pairwise?owner=X` puts X as `owner_a` on every card — the viewer's perspective ("you give X, they give Y"), which is what the doc says that owner cares about. The league-wide variant has no viewer, so pairs are canonicalized `a < b` (lexicographic) for stable, deterministic output.
+
+### Candidate selection: single largest positive gap per side, both gains strictly > 0
+- For a pair, X = the A-owned player B rates highest relative to A (max of `A_norm(X) - B_norm(X)` over A's drafted players ranked by both, tie → lower player ID), Y = the symmetric pick for B's roster. A trade is emitted only if both gaps are > 0 **and** both resulting gains are > 0: `AGain = A_norm(X) - A_norm(Y)` (A rates what it receives above what it gives up) and `BGain = B_norm(Y) - B_norm(X)`. The doc's "strong candidate" is operationalized as "the single best candidate per side" — no threshold tuning, no multi-candidate pairing, keeping the Go loop readable per the doc's "compute in application code" note.
+
+### Both endpoints honor `limit` (default 25, max 100)
+- The doc asks for "top N pairs per owner, or top N league-wide". Both `GET .../pairwise` (all valid trades for the owner, or all 66-pair results league-wide, sorted by `combined_score` desc with deterministic tie-breaks, then truncated) and `GET .../disagreements` (SQL `LIMIT`) take `?limit=`; 0, >100, or non-integer → 400.
+
+### Transparency fields beyond the doc's struct
+- The doc's `TradeSuggestion` has the three scores; the API also returns the four raw normalized ranks (`a_norm_of_a_gives`, `b_norm_of_a_gives`, `a_norm_of_b_gives`, `b_norm_of_b_gives`) so the card can show the doc's "reasoning is transparent, not a black box" line verbatim.
+
+### Error handling
+- `?owner=unknown` → 404 `owner not found`; an owner below the 20-player threshold → 400 with an explanatory message; query errors → 500. Free agents (NULL `drafted_by_username`) never appear as a "gives" side because `ListDraftedPlayers` filters them out of the ownership map, but they remain in the disagreement leaderboard — exactly the doc's edge case.
+
+### sqlc type-inference workarounds in `trade_suggestions.sql`
+- `limit` is a reserved word, so the param is `sqlc.arg(row_limit)`.
+- sqlc cannot infer types of CTE/computed expressions (float division came back as `int32`/`interface{}`), so every computed column carries an explicit cast: `::float8` for normalized ranks/spread, `::int` for `COUNT(*)`, `::text` for the `array_agg(...)[1]` raters.
