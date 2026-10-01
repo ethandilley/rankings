@@ -258,3 +258,156 @@ func TestComputePairwiseTrade(t *testing.T) {
 		}
 	})
 }
+
+func TestComputeContrarian(t *testing.T) {
+	players := map[int64]PlayerRef{
+		1: {PlayerID: 1, PlayerName: "Player One", Position: "RB", Team: "NE"},
+		2: {PlayerID: 2, PlayerName: "Player Two", Position: "WR", Team: "KC"},
+		3: {PlayerID: 3, PlayerName: "Player Three", Position: "TE", Team: "SF"},
+		4: {PlayerID: 4, PlayerName: "Player Four", Position: "RB", Team: "DET"},
+		5: {PlayerID: 5, PlayerName: "Player Five", Position: "WR", Team: "GB"},
+	}
+
+	// p1 ranked by all four, p2 by all four, p3 by three (dave absent),
+	// p4 by two only (below minConsensusOwners), p5 by one only.
+	boards := map[string]map[int64]float64{
+		"alice": {1: 0.10, 2: 0.90, 3: 0.50, 4: 0.05, 5: 0.05},
+		"bob":   {1: 0.50, 2: 0.20, 3: 0.50, 4: 0.10},
+		"carol": {1: 0.60, 2: 0.25, 3: 0.50},
+		"dave":  {1: 0.40, 2: 0.30},
+	}
+
+	type wantPlayer struct {
+		id    int64
+		owner float64
+		field float64
+		gap   float64
+		count int
+		name  string
+	}
+	tests := []struct {
+		owner    string
+		believer *wantPlayer
+		skeptic  *wantPlayer
+	}{
+		{
+			owner: "alice",
+			// p1: field ex-self (0.5+0.6+0.4)/3 = 0.5, gap 0.4; p4/p5
+			// excluded (ranked by <3 owners) despite huge gaps.
+			believer: &wantPlayer{id: 1, owner: 0.10, field: 0.50, gap: 0.40, count: 4, name: "Player One"},
+			// p2: field ex-self (0.2+0.25+0.3)/3 = 0.25, gap 0.65.
+			skeptic: &wantPlayer{id: 2, owner: 0.90, field: 0.25, gap: 0.65, count: 4, name: "Player Two"},
+		},
+		{
+			// p2: field ex-self (0.9+0.25+0.3)/3 = 0.4833, bob rates it 0.2.
+			owner:    "bob",
+			believer: &wantPlayer{id: 2, owner: 0.20, field: (0.9 + 0.25 + 0.3) / 3, gap: (0.9+0.25+0.3)/3 - 0.20, count: 4, name: "Player Two"},
+			// p1: field ex-self (0.1+0.6+0.4)/3 = 0.3667, bob rates it 0.5.
+			skeptic: &wantPlayer{id: 1, owner: 0.50, field: (0.1 + 0.6 + 0.4) / 3, gap: 0.50 - (0.1+0.6+0.4)/3, count: 4, name: "Player One"},
+		},
+		{
+			owner:    "carol",
+			believer: &wantPlayer{id: 2, owner: 0.25, field: (0.9 + 0.2 + 0.3) / 3, gap: (0.9+0.2+0.3)/3 - 0.25, count: 4, name: "Player Two"},
+			skeptic:  &wantPlayer{id: 1, owner: 0.60, field: (0.1 + 0.5 + 0.4) / 3, gap: 0.60 - (0.1+0.5+0.4)/3, count: 4, name: "Player One"},
+		},
+		{
+			owner:    "dave",
+			believer: &wantPlayer{id: 2, owner: 0.30, field: (0.9 + 0.2 + 0.25) / 3, gap: (0.9+0.2+0.25)/3 - 0.30, count: 4, name: "Player Two"},
+		},
+	}
+
+	got := computeContrarian(boards, players, []string{"alice", "bob", "carol", "dave"})
+	if len(got) != len(tests) {
+		t.Fatalf("len = %d, want %d", len(got), len(tests))
+	}
+
+	check := func(t *testing.T, owner string, p *ContrarianPlayer, want *wantPlayer, label string) {
+		t.Helper()
+		if want == nil {
+			if p != nil {
+				t.Errorf("%s %s: got %+v, want nil", owner, label, *p)
+			}
+			return
+		}
+		if p == nil {
+			t.Fatalf("%s %s: nil, want player %d", owner, label, want.id)
+		}
+		if p.PlayerID != want.id {
+			t.Errorf("%s %s id = %d, want %d", owner, label, p.PlayerID, want.id)
+		}
+		if p.PlayerName != want.name {
+			t.Errorf("%s %s name = %q, want %q", owner, label, p.PlayerName, want.name)
+		}
+		if !approxEqual(p.OwnerNormalizedRank, want.owner) {
+			t.Errorf("%s %s owner = %v, want %v", owner, label, p.OwnerNormalizedRank, want.owner)
+		}
+		if !approxEqual(p.FieldNormalizedRank, want.field) {
+			t.Errorf("%s %s field = %v, want %v", owner, label, p.FieldNormalizedRank, want.field)
+		}
+		if !approxEqual(p.Gap, want.gap) {
+			t.Errorf("%s %s gap = %v, want %v", owner, label, p.Gap, want.gap)
+		}
+		if p.NumOwnersRanked != want.count {
+			t.Errorf("%s %s count = %d, want %d", owner, label, p.NumOwnersRanked, want.count)
+		}
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.owner, func(t *testing.T) {
+			if got[i].Owner != tt.owner {
+				t.Fatalf("owner = %q, want %q", got[i].Owner, tt.owner)
+			}
+			check(t, tt.owner, got[i].BiggestBeliever, tt.believer, "believer")
+			check(t, tt.owner, got[i].BiggestSkeptic, tt.skeptic, "skeptic")
+		})
+	}
+}
+
+func TestComputeContrarianTieBreaksOnLowerPlayerID(t *testing.T) {
+	players := map[int64]PlayerRef{
+		3: {PlayerID: 3, PlayerName: "P3", Position: "RB", Team: "A"},
+		7: {PlayerID: 7, PlayerName: "P7", Position: "WR", Team: "B"},
+	}
+	boards := map[string]map[int64]float64{
+		"alice": {3: 0.10, 7: 0.10},
+		"bob":   {3: 0.50, 7: 0.50},
+		"carol": {3: 0.70, 7: 0.70},
+	}
+	got := computeContrarian(boards, players, []string{"alice"})
+	believer := got[0].BiggestBeliever
+	if believer == nil {
+		t.Fatal("expected a believer")
+	}
+	// Both gaps are 0.5; the lower player ID must win.
+	if believer.PlayerID != 3 {
+		t.Errorf("believer id = %d, want 3", believer.PlayerID)
+	}
+	if got[0].BiggestSkeptic != nil {
+		t.Errorf("skeptic = %+v, want nil", *got[0].BiggestSkeptic)
+	}
+}
+
+func TestComputeContrarianSelfExcludedFromField(t *testing.T) {
+	players := map[int64]PlayerRef{
+		1: {PlayerID: 1, PlayerName: "P1", Position: "RB", Team: "A"},
+	}
+	// Only alice rates p1 high; the field (bob, carol) rates it low. The
+	// field average must exclude alice's own 0.1 vote, giving 0.9, not the
+	// self-included (0.1+0.9+0.9)/3.
+	boards := map[string]map[int64]float64{
+		"alice": {1: 0.10},
+		"bob":   {1: 0.90},
+		"carol": {1: 0.90},
+	}
+	got := computeContrarian(boards, players, []string{"alice"})
+	believer := got[0].BiggestBeliever
+	if believer == nil {
+		t.Fatal("expected a believer")
+	}
+	if !approxEqual(believer.FieldNormalizedRank, 0.9) {
+		t.Errorf("field = %v, want 0.9 (self excluded)", believer.FieldNormalizedRank)
+	}
+	if !approxEqual(believer.Gap, 0.8) {
+		t.Errorf("gap = %v, want 0.8", believer.Gap)
+	}
+}

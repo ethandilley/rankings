@@ -51,6 +51,18 @@ type ConsensusEntry struct {
 	OwnerCount        int     `json:"owner_count"`
 }
 
+// BigBoardEntry is one row of the league-wide consensus big board: the
+// average of every owner's normalized overall rank (0.0 = best, 1.0 = worst)
+// for a player (ai/08-consensus-and-analytics.md).
+type BigBoardEntry struct {
+	PlayerID          int64   `json:"player_id"`
+	PlayerName        string  `json:"player_name"`
+	Position          string  `json:"position"`
+	Team              string  `json:"team"`
+	AvgNormalizedRank float64 `json:"avg_normalized_rank"`
+	NumOwnersRanked   int     `json:"num_owners_ranked"`
+}
+
 type OwnerRanking struct {
 	Owner    string          `json:"owner"`
 	Rankings []PlayerRanking `json:"rankings"`
@@ -283,14 +295,32 @@ func (h *RankingsService) resolvePositionFilter(ctx context.Context, raw string)
 // GET /rankings/consensus?position=
 // ---------------------------------------------------------------------------
 
-// getConsensus returns the league-wide positional consensus: for each player
-// in the requested position(s), the average positional rank across every
-// owner who ranked them, sorted best-first. "position" is required and may be
-// a single position or the synthetic FLEX value.
+// getConsensus returns the league consensus board. With ?position= it returns
+// the positional consensus (doc 03): for each player in the requested
+// position(s), the average positional rank across every owner who ranked
+// them. Without it, it returns the league-wide big board (doc 08): the
+// average of every owner's normalized overall rank per player, players ranked
+// by at least 3 owners only.
 func (h *RankingsService) getConsensus(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("position")
 	if raw == "" {
-		http.Error(w, ErrPositionRequired.Error(), http.StatusBadRequest)
+		rows, err := h.q.BigBoardConsensus(r.Context())
+		if err != nil {
+			http.Error(w, "failed to load consensus", http.StatusInternalServerError)
+			return
+		}
+		out := make([]BigBoardEntry, 0, len(rows))
+		for _, row := range rows {
+			out = append(out, BigBoardEntry{
+				PlayerID:          row.PlayerID,
+				PlayerName:        row.PlayerName,
+				Position:          row.Position,
+				Team:              row.Team,
+				AvgNormalizedRank: row.AvgNormalizedRank,
+				NumOwnersRanked:   int(row.NumOwnersRanked),
+			})
+		}
+		writeJSON(w, http.StatusOK, out)
 		return
 	}
 

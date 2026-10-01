@@ -143,3 +143,23 @@ Decisions made while implementing the `ai/` docs, with reasoning. Appended per s
 
 ### Transport security: no code change
 - The `Secure` cookie flag is already env-gated (`COOKIE_SECURE=true`); TLS termination itself is a property of wherever this is hosted (Caddy / platform HTTPS), per the doc. The compose `DB_URL`/`POSTGRES_PASSWORD` of `password` is a dev default on the internal docker network — fine on a LAN, must be changed if the stack is ever exposed publicly (noted in NOTES_PROGRESS).
+
+## doc 08 — League Consensus Board & Analytics
+
+### `GET /rankings/consensus` keeps doc 03's positional behavior; the big board is the unfiltered view
+- Doc 03 already owns `GET /rankings/consensus?position=` (average positional rank). Doc 08 asks for the same path to also serve the normalized big board "optionally with the same `?position=` filter". Rather than break the shipped doc 03 response, the endpoint now branches: no `?position=` → new league-wide big board (average of each owner's normalized overall rank, players ranked by ≥3 owners); with `?position=` → unchanged positional consensus (including FLEX). The consensus UI fetches the unfiltered big board once and filters positions client-side, mirroring index.html's position-tab pattern, so the page never mixes the two metrics.
+
+### Contrarian lives in the trades package as `GET /contrarian`
+- The doc doesn't specify a path. It goes with the normalization + gap machinery it must reuse, in `internal/server/trades` (route `GET /contrarian`, auth-gated, `?owner=` optional). Unknown owner → 404, matching the pairwise endpoint.
+
+### The field average excludes the owner's own vote
+- Comparing an owner against a consensus that includes their own rank would shrink their outliers and let a single vote move the baseline. The per-player field average is computed as `(sum - own) / (count - 1)`. A player only qualifies when ranked by ≥3 owners (`minConsensusOwners = 3`, same floor as the big board's `HAVING COUNT(*) >= 3`), which also keeps `count - 1 ≥ 2`.
+
+### No `minRankedPlayers` gate for contrarian owners
+- The trades endpoints exclude owners with <20 ranked players because trade math needs a full board; personality stats are meaningful at any board size ("you're the only one low on X" is exactly what a 5-player board should surface). All owners with ≥1 ranked player appear; `ListNormalizedRankings` is called with `min_ranked_players = 1` to reach them all.
+
+### `maxGapPlayer` extracted from `bestDesiredOtherSide` instead of a third variant
+- Doc 08 says to reuse the doc 05 pairwise gap computation, not invent a new one. `bestDesiredOtherSide` is now a thin wrapper over `maxGapPlayer(scope, own, other) (id, gap, bool)`, which both trade directions and both contrarian directions (believer = `maxGapPlayer(scope, fieldExcl, board)`, skeptic = `maxGapPlayer(scope, board, fieldExcl)`) share. Same strictly-positive-gap rule and lower-player-ID tie-break as before; existing trade tests pass unchanged.
+
+### Ranking history / movement tracking explicitly not built
+- The doc defers it to its own separate project. Not built opportunistically here.

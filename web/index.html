@@ -639,6 +639,7 @@
     <button class="link-btn" id="logoutBtn" type="button" hidden>log out</button>
     <button class="link-btn" id="settingsBtn" type="button">connection</button>
     <button class="link-btn" id="tradesBtn" type="button">trades</button>
+    <button class="link-btn" id="consensusBtn" type="button">consensus</button>
     <button class="link-btn" id="adminBtn" type="button" hidden>admin</button>
   </div>
 </header>
@@ -919,6 +920,7 @@
     userName: document.getElementById('userName'),
     logoutBtn: document.getElementById('logoutBtn'),
     tradesBtn: document.getElementById('tradesBtn'),
+    consensusBtn: document.getElementById('consensusBtn'),
     adminBtn: document.getElementById('adminBtn'),
   };
 
@@ -1792,6 +1794,10 @@
 
   el.tradesBtn.addEventListener('click', () => {
     window.location.replace('trades.html');
+  });
+
+  el.consensusBtn.addEventListener('click', () => {
+    window.location.replace('consensus.html');
   });
 
   el.adminBtn.addEventListener('click', () => {

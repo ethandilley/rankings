@@ -9,6 +9,74 @@ import (
 	"context"
 )
 
+const bigBoardConsensus = `-- name: BigBoardConsensus :many
+WITH owner_totals AS (
+    SELECT owner, COUNT(*) AS total
+    FROM rankings
+    GROUP BY owner
+),
+normalized AS (
+    SELECT
+        r.player_id,
+        (r.rank::float8 / ot.total::float8)::float8 AS normalized_rank
+    FROM rankings r
+    JOIN owner_totals ot ON ot.owner = r.owner
+)
+SELECT
+    p.id AS player_id,
+    p.player_name,
+    p.position,
+    p.team,
+    (AVG(n.normalized_rank))::float8 AS avg_normalized_rank,
+    COUNT(*)::int AS num_owners_ranked
+FROM normalized n
+JOIN players p ON p.id = n.player_id
+GROUP BY p.id, p.player_name, p.position, p.team
+HAVING COUNT(*) >= 3
+ORDER BY AVG(n.normalized_rank) ASC, p.player_name ASC
+`
+
+type BigBoardConsensusRow struct {
+	PlayerID          int64
+	PlayerName        string
+	Position          string
+	Team              string
+	AvgNormalizedRank float64
+	NumOwnersRanked   int32
+}
+
+// League-wide crowd-sourced big board (ai/08-consensus-and-analytics.md): the
+// average of every owner's normalized overall rank (rank / their list size,
+// 0.0 = best, 1.0 = worst) per player, so owners with different list sizes
+// are comparable. Players ranked by fewer than 3 owners are excluded so the
+// "consensus" is not one or two opinions.
+func (q *Queries) BigBoardConsensus(ctx context.Context) ([]BigBoardConsensusRow, error) {
+	rows, err := q.db.Query(ctx, bigBoardConsensus)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BigBoardConsensusRow
+	for rows.Next() {
+		var i BigBoardConsensusRow
+		if err := rows.Scan(
+			&i.PlayerID,
+			&i.PlayerName,
+			&i.Position,
+			&i.Team,
+			&i.AvgNormalizedRank,
+			&i.NumOwnersRanked,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteRanking = `-- name: DeleteRanking :exec
 DELETE FROM rankings
 WHERE owner = $1 AND player_id = $2

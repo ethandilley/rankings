@@ -286,6 +286,7 @@
     <span class="status-text" id="statusText">connecting…</span>
     <span class="status-text" id="userName"></span>
     <button class="link-btn" id="boardBtn" type="button">board</button>
+    <button class="link-btn" id="consensusBtn" type="button">consensus</button>
     <button class="link-btn" id="logoutBtn" type="button">log out</button>
   </div>
 </header>
@@ -330,6 +331,7 @@
     statusText: document.getElementById('statusText'),
     userName: document.getElementById('userName'),
     boardBtn: document.getElementById('boardBtn'),
+    consensusBtn: document.getElementById('consensusBtn'),
     logoutBtn: document.getElementById('logoutBtn'),
     excludedNote: document.getElementById('excludedNote'),
     scopeMe: document.getElementById('scopeMe'),
@@ -629,6 +631,7 @@
   el.scopeMe.addEventListener('click', () => setScope('me'));
   el.scopeLeague.addEventListener('click', () => setScope('league'));
   el.boardBtn.addEventListener('click', () => { window.location.replace('index.html'); });
+  el.consensusBtn.addEventListener('click', () => { window.location.replace('consensus.html'); });
   el.logoutBtn.addEventListener('click', async () => {
     el.logoutBtn.disabled = true;
     try { await apiRequest('/auth/logout', { method: 'POST' }); } catch (err) {}

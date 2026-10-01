@@ -345,3 +345,46 @@ verified, what was skipped, and the commit hash.
   be changed in that case too.
 
 **Commit:** `0d76f80`
+
+## doc 08 — League Consensus Board & Analytics (Optional / Stretch)
+
+### What was done
+- `GET /rankings/consensus` (no `?position=`) now returns the league-wide
+  big board: new `BigBoardConsensus` SQL (db/queries/rankings.sql) averages
+  each owner's normalized overall rank (`rank / total`, 0.0 = best) per
+  player, `HAVING COUNT(*) >= 3`, ordered by average asc with a player-name
+  tie-break. With `?position=` the doc 03 positional consensus is unchanged.
+- `GET /contrarian` (internal/server/trades): per owner (or `?owner=`), the
+  single player they rate furthest above (biggest believer) and below
+  (biggest skeptic) the rest of the league. Field average excludes the
+  owner's own vote; players ranked by <3 owners are skipped. Reuses
+  `ListNormalizedRankings` (min 1 owner) and the doc 05 gap logic via a new
+  shared `maxGapPlayer` primitive (`bestDesiredOtherSide` is now a wrapper).
+- New `web/consensus.html`: league big board table with client-side position
+  chips (All/QB/RB/WR/TE/FLEX/K/D/ST, "Other" only if unknown positions
+  exist) and a contrarian section — whole-league card grid with an owner
+  dropdown to focus one owner. "consensus" nav links added to index.html and
+  trades.html.
+
+### What was verified
+- `go build ./...`, `go vet ./...`, `go test ./...` green, including new
+  table-driven tests: `TestComputeContrarian` (believer/skeptic selection,
+  <3-owner exclusion, exact self-excluded field averages),
+  `TestComputeContrarianTieBreaksOnLowerPlayerID`,
+  `TestComputeContrarianSelfExcludedFromField`. Existing trade tests pass
+  unchanged through the `maxGapPlayer` refactor.
+- Smoke after rebuild: `GET /rankings/consensus` → 180 entries (Jahmyr Gibbs
+  first, avg 0.009, 12 owners); `?position=RB` → 56 entries with
+  `avg_positional_rank` (doc 03 shape intact); `?position=FLEX` → 139;
+  `?position=ZZZ` → 400. `GET /contrarian` → all 12 owners with sensible
+  believer/skeptic stats; `?owner=ethan` → one owner; `?owner=nosuch` → 404;
+  unauthenticated → 401. `GET /consensus.html` → 200; page JS passes
+  `node --check`.
+
+### What was skipped / deferred
+- Ranking history / movement tracking: explicitly deferred by the doc to its
+  own separate project; not built here.
+- Rotating the leaked ESPN session cookie is still the most urgent manual
+  step (see doc 07).
+
+**Commit:** `43f7f0b` (pre-amend)

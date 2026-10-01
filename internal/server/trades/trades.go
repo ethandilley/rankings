@@ -75,6 +75,39 @@ type PairwiseResponse struct {
 	Suggestions      []TradeSuggestion `json:"suggestions"`
 }
 
+// minConsensusOwners is the minimum number of owners that must have ranked a
+// player before it can appear in contrarian comparisons (ai/08-consensus-and-
+// analytics.md). Below that, the "field" opinion is one or two owners.
+const minConsensusOwners = 3
+
+// ContrarianPlayer is one outlier stat: how far an owner's normalized rank of
+// a player sits from the rest of the league's (self-excluded) average.
+type ContrarianPlayer struct {
+	PlayerID            int64   `json:"player_id"`
+	PlayerName          string  `json:"player_name"`
+	Position            string  `json:"position"`
+	Team                string  `json:"team"`
+	OwnerNormalizedRank float64 `json:"owner_normalized_rank"`
+	FieldNormalizedRank float64 `json:"field_normalized_rank"`
+	NumOwnersRanked     int     `json:"num_owners_ranked"`
+	Gap                 float64 `json:"gap"`
+}
+
+// ContrarianOwner is one owner's "how contrarian am I" personality: their
+// single biggest believer (ranks a player higher than the field) and biggest
+// skeptic (ranks a player lower than the field), if either exists.
+type ContrarianOwner struct {
+	Owner           string            `json:"owner"`
+	BiggestBeliever *ContrarianPlayer `json:"biggest_believer"`
+	BiggestSkeptic  *ContrarianPlayer `json:"biggest_skeptic"`
+}
+
+type ContrarianResponse struct {
+	Owner              string            `json:"owner,omitempty"`
+	MinConsensusOwners int               `json:"min_consensus_owners"`
+	Owners             []ContrarianOwner `json:"owners"`
+}
+
 type TradesService struct {
 	conn *pgx.Conn
 	q    *db.Queries
@@ -88,6 +121,7 @@ func NewTradesService(conn *pgx.Conn, authService *auth.AuthService) *TradesServ
 func (s *TradesService) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /trade-suggestions/disagreements", s.auth.RequireAuth(s.getDisagreements))
 	mux.HandleFunc("GET /trade-suggestions/pairwise", s.auth.RequireAuth(s.getPairwise))
+	mux.HandleFunc("GET /contrarian", s.auth.RequireAuth(s.getContrarian))
 }
 
 func (s *TradesService) getDisagreements(w http.ResponseWriter, r *http.Request) {
@@ -242,6 +276,71 @@ func (s *TradesService) getPairwise(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// getContrarian returns "how contrarian am I" personality stats
+// (ai/08-consensus-and-analytics.md): for each owner (or one owner via
+// ?owner=), the player they rate furthest above and below the rest of the
+// league. The field average excludes the owner's own vote, and only players
+// ranked by at least minConsensusOwners owners are compared.
+func (s *TradesService) getContrarian(w http.ResponseWriter, r *http.Request) {
+	requestedOwner := r.URL.Query().Get("owner")
+
+	normRows, err := s.q.ListNormalizedRankings(r.Context(), 1)
+	if err != nil {
+		http.Error(w, "failed to load rankings", http.StatusInternalServerError)
+		return
+	}
+	playerRows, err := s.q.ListPlayers(r.Context())
+	if err != nil {
+		http.Error(w, "failed to load players", http.StatusInternalServerError)
+		return
+	}
+
+	boards := map[string]map[int64]float64{}
+	for _, row := range normRows {
+		if boards[row.Owner] == nil {
+			boards[row.Owner] = map[int64]float64{}
+		}
+		boards[row.Owner][row.PlayerID] = row.NormalizedRank
+	}
+
+	playersByID := make(map[int64]PlayerRef, len(playerRows))
+	for _, row := range playerRows {
+		playersByID[row.ID] = PlayerRef{
+			PlayerID:   row.ID,
+			PlayerName: row.PlayerName,
+			Position:   row.Position,
+			Team:       row.Team,
+		}
+	}
+
+	owners := make([]string, 0, len(boards))
+	for owner := range boards {
+		owners = append(owners, owner)
+	}
+	sort.Strings(owners)
+
+	if requestedOwner != "" {
+		found := false
+		for _, owner := range owners {
+			if owner == requestedOwner {
+				found = true
+				break
+			}
+		}
+		if !found {
+			http.Error(w, "owner not found", http.StatusNotFound)
+			return
+		}
+		owners = []string{requestedOwner}
+	}
+
+	writeJSON(w, http.StatusOK, ContrarianResponse{
+		Owner:              requestedOwner,
+		MinConsensusOwners: minConsensusOwners,
+		Owners:             computeContrarian(boards, playersByID, owners),
+	})
+}
+
 type ownerPair struct{ a, b string }
 
 // ownerPairs returns the owner pairs to evaluate. With a requested owner, that
@@ -355,15 +454,15 @@ func computePairwiseTrade(in pairwiseInput) (pairwiseResult, bool) {
 	}, true
 }
 
-// bestDesiredOtherSide returns the player in owned that the other owner rates
-// more favorably (lower normalized rank) than own does, by the largest gap.
-// Players not ranked by both sides are skipped. Ties break on lower player ID
-// for deterministic output.
-func bestDesiredOtherSide(owned map[int64]bool, own, other map[int64]float64) (int64, bool) {
+// maxGapPlayer returns the player in scope where own rates it more favorably
+// (lower normalized rank) than other does, by the largest strictly positive
+// gap, along with that gap. Players missing from either side are skipped.
+// Ties break on lower player ID for deterministic output.
+func maxGapPlayer(scope map[int64]bool, own, other map[int64]float64) (int64, float64, bool) {
 	var bestID int64
 	bestGap := 0.0
 	found := false
-	for id := range owned {
+	for id := range scope {
 		ownRank, rankedByOwn := own[id]
 		otherRank, rankedByOther := other[id]
 		if !rankedByOwn || !rankedByOther {
@@ -377,7 +476,88 @@ func bestDesiredOtherSide(owned map[int64]bool, own, other map[int64]float64) (i
 			bestID, bestGap, found = id, gap, true
 		}
 	}
-	return bestID, found
+	return bestID, bestGap, found
+}
+
+// bestDesiredOtherSide returns the player in owned that the other owner rates
+// more favorably (lower normalized rank) than own does, by the largest gap.
+// Players not ranked by both sides are skipped. Ties break on lower player ID
+// for deterministic output.
+func bestDesiredOtherSide(owned map[int64]bool, own, other map[int64]float64) (int64, bool) {
+	id, _, ok := maxGapPlayer(owned, own, other)
+	return id, ok
+}
+
+// playerConsensus aggregates one player's normalized ranks across owners.
+type playerConsensus struct {
+	sum   float64
+	count int
+}
+
+// contrarianForOwner finds the single player an owner rates furthest above
+// (biggest believer) and furthest below (biggest skeptic) the rest of the
+// league. The field average for each player excludes the owner's own vote so
+// an owner can't inflate their own outlier. A player only qualifies when at
+// least minConsensusOwners owners ranked it.
+func contrarianForOwner(owner string, board map[int64]float64, consensus map[int64]playerConsensus, playersByID map[int64]PlayerRef) ContrarianOwner {
+	out := ContrarianOwner{Owner: owner}
+
+	scope := map[int64]bool{}
+	fieldExcl := map[int64]float64{}
+	for id, norm := range board {
+		c, ok := consensus[id]
+		if !ok || c.count < minConsensusOwners {
+			continue
+		}
+		scope[id] = true
+		fieldExcl[id] = (c.sum - norm) / float64(c.count-1)
+	}
+
+	// Believer: the field rates the player higher (lower normalized rank) than
+	// the owner does, so maximize fieldExcl - board.
+	if id, gap, ok := maxGapPlayer(scope, fieldExcl, board); ok {
+		out.BiggestBeliever = toContrarianPlayer(id, board[id], fieldExcl[id], consensus[id].count, gap, playersByID)
+	}
+	// Skeptic: the owner rates the player higher than the field, so maximize
+	// board - fieldExcl.
+	if id, gap, ok := maxGapPlayer(scope, board, fieldExcl); ok {
+		out.BiggestSkeptic = toContrarianPlayer(id, board[id], fieldExcl[id], consensus[id].count, gap, playersByID)
+	}
+	return out
+}
+
+// computeContrarian returns contrarian stats for the given owners (already
+// sorted) against the league-wide consensus built from all boards.
+func computeContrarian(boards map[string]map[int64]float64, playersByID map[int64]PlayerRef, owners []string) []ContrarianOwner {
+	consensus := map[int64]playerConsensus{}
+	for _, board := range boards {
+		for id, norm := range board {
+			c := consensus[id]
+			c.sum += norm
+			c.count++
+			consensus[id] = c
+		}
+	}
+
+	out := make([]ContrarianOwner, 0, len(owners))
+	for _, owner := range owners {
+		out = append(out, contrarianForOwner(owner, boards[owner], consensus, playersByID))
+	}
+	return out
+}
+
+func toContrarianPlayer(id int64, ownerNorm, fieldNorm float64, numOwners int, gap float64, playersByID map[int64]PlayerRef) *ContrarianPlayer {
+	ref := playersByID[id]
+	return &ContrarianPlayer{
+		PlayerID:            ref.PlayerID,
+		PlayerName:          ref.PlayerName,
+		Position:            ref.Position,
+		Team:                ref.Team,
+		OwnerNormalizedRank: ownerNorm,
+		FieldNormalizedRank: fieldNorm,
+		NumOwnersRanked:     numOwners,
+		Gap:                 gap,
+	}
 }
 
 func toTradeSuggestion(aOwner, bOwner string, playersByID map[int64]PlayerRef, result pairwiseResult) TradeSuggestion {
