@@ -388,3 +388,28 @@ verified, what was skipped, and the commit hash.
   step (see doc 07).
 
 **Commit:** `43f7f0b` (pre-amend)
+
+## doc 09 — Next Steps & Backlog
+
+### What was done
+- 1.1: Extracted shared `web/app.css` and `web/app.js`; refactored `index.html`, `trades.html`, `consensus.html`, `admin.html`, and `login.html` to use them while preserving page-specific themes and auth wiring.
+- 1.2: Deleted `cmd/backfill-players`; player backfill now happens through the normal ESPN sync path.
+- 2.2: Added `GET /rankings/player/{id}`, big-board consensus percentile, shared player-detail drawer, and clickable player wiring across the board, consensus, and trades pages.
+- 2.1: Added `db/migrations/0009_ranking_snapshots.sql`, `cmd/rankings-snapshot`, `GET /rankings/movement/{owner}`, owner movement glyphs, and the player-detail trend sparkline.
+- 2.3: Added `db/migrations/0010_sync_log.sql`, `GET /sync/status`, `syncstatus` service, admin roster-sync UI, board sync chip, and optional `ESPN_SYNC_INTERVAL` ticker.
+- Stretch: Added deep links for `index.html`, `trades.html`, and `consensus.html`; URL-synced owner/scope selection; consensus print stylesheet; sticky owner dropdown; and a ranked-by-N bar on the consensus big board.
+
+### What was verified
+- `go build ./...`, `go vet ./...`, and `go test ./...` green, including `TestIntervalFromEnv`, `TestComputeContrarian*`, and the rankings movement/player-detail tests.
+- `node --check web/app.js` and the inline-web JS syntax check passed; `docker compose config --quiet` passed.
+- Migrations applied locally through goose version `10`.
+- Live smoke after rebuild: `/`, `/trades.html`, `/consensus.html`, `/admin.html`, `/login.html`, `/app.js`, `/app.css`, and deep-linked URLs returned 200.
+- Live smoke: unauthenticated `/sync/status` → 401; authenticated `/sync/status` → 200; authenticated dry-run and applied `POST /admin/sync-players` → 200; final applied sync reported 188 unchanged and `/sync/status` returned `last_status: success`.
+- Deterministic failure path verified with empty `ESPN_S2`/`ESPN_SWID`: `POST /admin/sync-players` → 502, and `/sync/status` recorded a `manual` failure with `ESPN fetch failed: ESPN credentials not configured`.
+- Ticker path verified with `ESPN_SYNC_INTERVAL=2s` and empty credentials: server logs recorded `startup` and `ticker` failures, and `/sync/status` showed `enabled: true`, `interval: 2s`, and `source: ticker` rows.
+
+### What was skipped / deferred
+- Rotating the leaked ESPN session cookie remains a manual user action; the old cookie may still work until rotated.
+- No external scheduler was added; the in-process ticker is the only scheduler in this environment.
+
+**Commit:** `cdafd9c` (pre-amend)

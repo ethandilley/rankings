@@ -7,101 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css">
 <style>
-  :root {
-    --bg: #121212;
-    --bg-raised: #1a1a1a;
-    --bg-hover: #232323;
-    --text: #e8e8e8;
-    --text-soft: #9a9a9a;
-    --line: #2c2c2c;
-    --accent: #5b9dff;
-    --accent-deep: #4986e6;
-    --danger: #e0554f;
-    --danger-bg: #3a2321;
-    --success: #4caf7d;
-  }
-
-  * { box-sizing: border-box; }
-
-  html, body {
-    margin: 0;
-    padding: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  body {
-    min-height: 100vh;
-  }
-
-  .app-header {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 24px clamp(16px, 4vw, 48px) 18px;
-    border-bottom: 1px solid var(--line);
-    background: var(--bg);
-    flex-wrap: wrap;
-  }
-
-  .wordmark {
-    font-weight: 600;
-    font-size: clamp(22px, 3vw, 26px);
-    letter-spacing: -0.01em;
-    margin: 0;
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-
-  .wordmark .num {
-    color: var(--accent);
-    font-weight: 400;
-  }
-
-  .tagline {
-    font-size: 13px;
-    color: var(--text-soft);
-    max-width: 34ch;
-    line-height: 1.4;
-    margin-top: 4px;
-  }
-
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--line);
-    flex-shrink: 0;
-  }
-  .status-dot.ok { background: var(--success); }
-  .status-dot.bad { background: var(--danger); }
-
-  .status-text { font-size: 12.5px; color: var(--text-soft); }
-
-  button.link-btn {
-    background: none;
-    border: none;
-    color: var(--text-soft);
-    font-family: inherit;
-    font-size: 12.5px;
-    text-decoration: underline;
-    text-underline-offset: 2px;
-    cursor: pointer;
-    padding: 4px;
-  }
-  button.link-btn:hover { color: var(--text); }
-
   .layout {
     display: grid;
     grid-template-columns: 280px 1fr;
@@ -219,34 +126,6 @@
   }
 
   input::placeholder { color: #6b6b6b; }
-
-  .btn {
-    font-family: inherit;
-    font-size: 13.5px;
-    font-weight: 600;
-    padding: 9px 14px;
-    border-radius: 6px;
-    border: 1px solid var(--accent);
-    background: var(--accent);
-    color: #0d1117;
-    cursor: pointer;
-    transition: opacity 0.12s ease, transform 0.08s ease;
-  }
-  .btn:hover { opacity: 0.88; }
-  .btn:active { transform: translateY(1px); }
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-
-  .btn.secondary {
-    background: transparent;
-    color: var(--text);
-    border-color: var(--line);
-  }
-  .btn.secondary:hover { background: var(--bg-hover); }
-
-  .btn.small {
-    padding: 6px 10px;
-    font-size: 12.5px;
-  }
 
   .btn.new-owner-toggle {
     background: transparent;
@@ -530,49 +409,6 @@
   .field.grow { flex: 1; min-width: 180px; }
   .field.rank-field { width: 90px; }
 
-  .toast-stack {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    z-index: 50;
-    max-width: 320px;
-  }
-
-  .toast {
-    padding: 12px 14px;
-    border-radius: 8px;
-    font-size: 13.5px;
-    line-height: 1.4;
-    border: 1px solid var(--line);
-    background: var(--bg-raised);
-    color: var(--text);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-    animation: toast-in 0.18s ease;
-  }
-  .toast.error {
-    background: var(--danger-bg);
-    border-color: var(--danger);
-    color: #ffb4af;
-  }
-  .toast.success {
-    background: #1c3327;
-    border-color: var(--success);
-    color: #a8e6c3;
-  }
-  .toast.info {
-    background: var(--bg-raised);
-    border-color: var(--accent);
-    color: var(--text);
-  }
-
-  @keyframes toast-in {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
   dialog#settingsDialog {
     border: 1px solid var(--line);
     border-radius: 10px;
@@ -636,6 +472,7 @@
     <span class="status-dot" id="statusDot"></span>
     <span class="status-text" id="statusText">connecting…</span>
     <span class="status-text" id="userName"></span>
+    <span class="sync-status" id="syncStatus" hidden></span>
     <button class="link-btn" id="logoutBtn" type="button" hidden>log out</button>
     <button class="link-btn" id="settingsBtn" type="button">connection</button>
     <button class="link-btn" id="tradesBtn" type="button">trades</button>
@@ -697,6 +534,7 @@
   </div>
 </dialog>
 
+<script src="app.js"></script>
 <script>
 (function () {
   'use strict';
@@ -886,12 +724,12 @@
   "Jets D/ST (NYJ, D/ST)"
 ];
 
-  const DEFAULT_API_BASE = (window.location.protocol === 'http:' || window.location.protocol === 'https:') ? window.location.origin : 'http://localhost:8081';
-  let API_BASE = localStorage.getItem('rankings_api_base') || DEFAULT_API_BASE;
+  let API_BASE = App.apiBase();
 
   /** @type {{owner: string, rankings: {player_id: number, player_name: string, position: string, team: string, overall_rank: number, positional_rank: number, tier: number}[]}[]} */
   let owners = [];
   let selectedOwner = null;
+  let deepLinkOwner = App.getQueryParam('owner') || '';
   let loading = true;
   let currentUser = null;
   let activePositionTab = 'All';
@@ -899,6 +737,9 @@
   let activeTierBreaks = [];
   /** @type {string|null} owner|scope key that activeTierBreaks was loaded for */
   let tierBreaksKey = null;
+  /** @type {Map<number, {snapshot_taken_at: string|null, players: {player_id: number, current_rank: number, previous_rank: number|null, delta: number|null}[]}>} */
+  let movementByOwner = new Map();
+  const movementLoading = new Set();
 
   const el = {
     statusDot: document.getElementById('statusDot'),
@@ -918,6 +759,7 @@
     newOwnerFirstPlayer: document.getElementById('newOwnerFirstPlayer'),
     newBoardUser: document.getElementById('newBoardUser'),
     userName: document.getElementById('userName'),
+    syncStatus: document.getElementById('syncStatus'),
     logoutBtn: document.getElementById('logoutBtn'),
     tradesBtn: document.getElementById('tradesBtn'),
     consensusBtn: document.getElementById('consensusBtn'),
@@ -925,82 +767,37 @@
   };
 
   // ---------------------------------------------------------------------
-  // Toasts
-  // ---------------------------------------------------------------------
-  function toast(message, kind) {
-    const t = document.createElement('div');
-    t.className = 'toast' + (kind ? ' ' + kind : '');
-    t.textContent = message;
-    el.toastStack.appendChild(t);
-    setTimeout(() => {
-      t.style.transition = 'opacity 0.25s ease';
-      t.style.opacity = '0';
-      setTimeout(() => t.remove(), 260);
-    }, 3600);
-  }
-
-  function friendlyError(status, bodyText) {
-    const trimmed = (bodyText || '').trim();
-    switch (status) {
-      case 400: return trimmed || 'That request was missing something required.';
-      case 401: return 'You need to log in first.';
-      case 403: return 'You can only edit your own board.';
-      case 404: return 'Owner or player not found — the board may be out of date.';
-      case 409: return 'That player is already on this owner\u2019s board.';
-      case 500: return 'Something went wrong on the server. Try again.';
-      default: return trimmed || ('Request failed (' + status + ').');
-    }
-  }
-
-  // ---------------------------------------------------------------------
   // API client
   // ---------------------------------------------------------------------
-  async function apiRequest(path, options) {
-    const res = await fetch(API_BASE.replace(/\/$/, '') + path, Object.assign({
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    }, options));
-
-    if (!res.ok) {
-      const bodyText = await res.text().catch(() => '');
-      if (res.status === 401 && !path.startsWith('/auth/')) {
-        window.location.replace('login.html');
-        return new Promise(() => {});
-      }
-      const err = new Error(friendlyError(res.status, bodyText));
-      err.status = res.status;
-      throw err;
-    }
-    if (res.status === 204) return null;
-    const text = await res.text();
-    return text ? JSON.parse(text) : null;
-  }
-
   const api = {
-    me: () => apiRequest('/auth/me'),
-    logout: () => apiRequest('/auth/logout', { method: 'POST' }),
-    getRankings: () => apiRequest('/rankings'),
-    replaceRankings: (owner, rankings) => apiRequest('/rankings', {
+    me: () => App.api('/auth/me'),
+    logout: () => App.api('/auth/logout', { method: 'POST' }),
+    getRankings: () => App.api('/rankings'),
+    getMovement: (owner) => App.api(
+      '/rankings/movement/' + encodeURIComponent(owner)
+    ),
+    getSyncStatus: () => App.api('/sync/status'),
+    replaceRankings: (owner, rankings) => App.api('/rankings', {
       method: 'POST',
       body: JSON.stringify({ owner, rankings }),
     }),
-    getPlayers: () => apiRequest('/players'),
-    moveRanking: (owner, playerId, rank) => apiRequest(
+    getPlayers: () => App.api('/players'),
+    moveRanking: (owner, playerId, rank) => App.api(
       '/rankings/' + encodeURIComponent(owner) + '/move',
       { method: 'PATCH', body: JSON.stringify({ player_id: playerId, rank }) }
     ),
-    addPlayer: (owner, playerRef, rank) => apiRequest(
+    addPlayer: (owner, playerRef, rank) => App.api(
       '/rankings/' + encodeURIComponent(owner) + '/players',
       { method: 'POST', body: JSON.stringify(Object.assign({ rank: rank ?? undefined }, playerRef)) }
     ),
-    removePlayer: (owner, playerId) => apiRequest(
+    removePlayer: (owner, playerId) => App.api(
       '/rankings/' + encodeURIComponent(owner) + '/players/' + encodeURIComponent(playerId),
       { method: 'DELETE' }
     ),
-    getTierBreaks: (owner, position) => apiRequest(
+    getTierBreaks: (owner, position) => App.api(
       '/tiers/' + encodeURIComponent(owner) + '?position=' + encodeURIComponent(position)
     ),
-    setTierBreaks: (owner, position, breaks) => apiRequest(
+    setTierBreaks: (owner, position, breaks) => App.api(
       '/tiers/' + encodeURIComponent(owner) + '?position=' + encodeURIComponent(position),
       { method: 'PUT', body: JSON.stringify({ breaks }) }
     ),
@@ -1149,7 +946,7 @@
       renderBoard();
     } catch (err) {
       tierBreaksKey = null;
-      toast(err.message, 'error');
+      App.toast(err.message, 'error');
     }
   }
 
@@ -1164,7 +961,7 @@
         renderBoard();
       }
     } catch (err) {
-      toast(err.message, 'error');
+      App.toast(err.message, 'error');
     }
   }
 
@@ -1294,8 +1091,13 @@
     });
   }
 
+  function updateOwnerUrl(owner) {
+    App.updateQueryParam('owner', owner || '');
+  }
+
   function selectOwner(owner) {
     selectedOwner = owner;
+    updateOwnerUrl(owner);
     renderOwnerList();
     renderBoard();
     loadTierBreaks();
@@ -1320,7 +1122,7 @@
       btn.type = 'button';
       btn.className = 'pos-tab' + (tab === activePositionTab ? ' active' : '');
       btn.innerHTML =
-        '<span class="pos-tab-name">' + escapeHtml(tab) + '</span>' +
+        '<span class="pos-tab-name">' + App.escapeHtml(tab) + '</span>' +
         '<span class="pos-tab-count">' + count + '</span>';
       btn.addEventListener('click', () => {
         activePositionTab = tab;
@@ -1358,11 +1160,15 @@
     header.className = 'board-header';
     header.innerHTML = `
       <div>
-        <h2 class="board-title">${escapeHtml(ownerData.owner)}</h2>
+        <h2 class="board-title">${App.escapeHtml(ownerData.owner)}</h2>
         <div class="board-sub">${ownerData.rankings.length} player${ownerData.rankings.length === 1 ? '' : 's'} ranked${canEdit ? '' : ' · read-only'}</div>
       </div>
     `;
     el.boardContent.appendChild(header);
+
+    if (canEdit && activePositionTab === 'All') {
+      loadMovement(ownerData.owner);
+    }
 
     if (ownerData.rankings.length > 0) {
       // Guard against a stale tab (e.g. Other was active on a board that had
@@ -1435,7 +1241,8 @@
           const target = positionTabTarget(p.position);
           if (target) {
             posBadge.title = 'Jump to the ' + target + ' tab';
-            posBadge.addEventListener('click', () => {
+            posBadge.addEventListener('click', (e) => {
+              e.stopPropagation();
               activePositionTab = target;
               renderBoard();
               loadTierBreaks();
@@ -1450,6 +1257,8 @@
           teamBadge.textContent = p.team;
           name.appendChild(teamBadge);
         }
+
+        App.makePlayerClickable(name, p.player_id);
 
         const actions = document.createElement('span');
         actions.className = 'rank-actions';
@@ -1481,6 +1290,10 @@
         }
 
         row.appendChild(num);
+        if (isAll && canEdit) {
+          const glyph = movementGlyph(p.overall_rank, p.player_id);
+          if (glyph) row.appendChild(glyph);
+        }
         row.appendChild(name);
         row.appendChild(actions);
         list.appendChild(row);
@@ -1497,7 +1310,7 @@
       note.innerHTML = `
         <div class="field grow">
           <label>Read-only board</label>
-          <div class="board-sub">This board belongs to ${escapeHtml(ownerData.owner)}. Only the board owner can edit it.</div>
+          <div class="board-sub">This board belongs to ${App.escapeHtml(ownerData.owner)}. Only the board owner can edit it.</div>
         </div>
       `;
       el.boardContent.appendChild(note);
@@ -1556,10 +1369,10 @@
       try {
         const updated = await api.addPlayer(ownerData.owner, playerRef, rank);
         applyOwnerUpdate(updated);
-        toast(playerName + ' added to ' + ownerData.owner + '\u2019s board.', 'success');
+        App.toast(playerName + ' added to ' + ownerData.owner + '\u2019s board.', 'success');
         form.reset();
       } catch (err) {
-        toast(err.message, 'error');
+        App.toast(err.message, 'error');
       } finally {
         submitBtn.disabled = false;
       }
@@ -1567,10 +1380,52 @@
     return form;
   }
 
-  function escapeHtml(str) {
-    const d = document.createElement('div');
-    d.textContent = str;
-    return d.innerHTML;
+  // ---------------------------------------------------------------------
+  // Movement history
+  // ---------------------------------------------------------------------
+  function invalidateMovement(owner) {
+    movementByOwner.delete(owner);
+    movementLoading.delete(owner);
+  }
+
+  async function loadMovement(owner) {
+    if (!owner || movementByOwner.has(owner) || movementLoading.has(owner)) return;
+    movementLoading.add(owner);
+    try {
+      const data = await api.getMovement(owner);
+      movementByOwner.set(owner, {
+        snapshot_taken_at: data.snapshot_taken_at || null,
+        players: data.players || [],
+      });
+      if (selectedOwner === owner) renderBoard();
+    } catch (err) {
+      movementByOwner.set(owner, { snapshot_taken_at: null, players: [] });
+    } finally {
+      movementLoading.delete(owner);
+    }
+  }
+
+  function movementGlyph(currentRank, playerId) {
+    const cached = movementByOwner.get(selectedOwner);
+    if (!cached || !cached.snapshot_taken_at) return null;
+    const info = cached.players.find((p) => p.player_id === playerId);
+    if (!info || info.delta === null || info.delta === undefined) return null;
+
+    const span = document.createElement('span');
+    if (info.delta < 0) {
+      span.className = 'movement up';
+      span.textContent = '\u2191';
+      span.title = 'Up from #' + info.previous_rank + ' since ' + cached.snapshot_taken_at;
+    } else if (info.delta > 0) {
+      span.className = 'movement down';
+      span.textContent = '\u2193';
+      span.title = 'Down from #' + info.previous_rank + ' since ' + cached.snapshot_taken_at;
+    } else {
+      span.className = 'movement same';
+      span.textContent = '\u2192';
+      span.title = 'Held at #' + currentRank + ' since ' + cached.snapshot_taken_at;
+    }
+    return span;
   }
 
   // ---------------------------------------------------------------------
@@ -1583,6 +1438,7 @@
     } else {
       owners[idx] = updated;
     }
+    invalidateMovement(updated.owner);
     renderOwnerList();
     if (selectedOwner === updated.owner) renderBoard();
   }
@@ -1596,7 +1452,7 @@
       const updated = await api.moveRanking(owner, player.player_id, newRank);
       applyOwnerUpdate(updated);
     } catch (err) {
-      toast(err.message, 'error');
+      App.toast(err.message, 'error');
     }
   }
 
@@ -1605,9 +1461,9 @@
     try {
       const updated = await api.removePlayer(owner, player.player_id);
       applyOwnerUpdate(updated);
-      toast(player.player_name + ' removed.', 'success');
+      App.toast(player.player_name + ' removed.', 'success');
     } catch (err) {
-      toast(err.message, 'error');
+      App.toast(err.message, 'error');
     }
   }
 
@@ -1622,7 +1478,7 @@
 
     const owner = currentUser.username;
     if (findOwner(owner)) {
-      toast('Your board already exists — it won\u2019t be touched.', 'success');
+      App.toast('Your board already exists — it won\u2019t be touched.', 'success');
       return;
     }
 
@@ -1642,16 +1498,16 @@
         return { player_name: rawName };
       });
       if (unresolved > 0) {
-        toast(unresolved + ' of ' + DRAFT_ORDER_DEFAULT.length +
+        App.toast(unresolved + ' of ' + DRAFT_ORDER_DEFAULT.length +
           ' draft-order players could not be matched and were sent by name.', 'info');
       }
       const result = await api.replaceRankings(owner, rankings);
       owners.push(result);
       renderOwnerList();
       selectOwner(owner);
-      toast(`Seeded your board with ${DRAFT_ORDER_DEFAULT.length} players.`, 'success');
+      App.toast(`Seeded your board with ${DRAFT_ORDER_DEFAULT.length} players.`, 'success');
     } catch (err) {
-      toast(err.message, 'error');
+      App.toast(err.message, 'error');
     } finally {
       el.seedDefaultsBtn.disabled = false;
     }
@@ -1686,11 +1542,11 @@
     const owner = currentUser.username;
     const firstPlayer = el.newOwnerFirstPlayer.value.trim();
     if (!firstPlayer) {
-      toast('Enter at least one player to start your board.', 'error');
+      App.toast('Enter at least one player to start your board.', 'error');
       return;
     }
     if (findOwner(owner)) {
-      toast('Your board already exists — select it from the list.', 'error');
+      App.toast('Your board already exists — select it from the list.', 'error');
       return;
     }
     const submitBtn = el.newOwnerForm.querySelector('button[type="submit"]');
@@ -1704,9 +1560,9 @@
       el.newOwnerForm.classList.add('hidden');
       el.newOwnerToggle.classList.remove('hidden');
       selectOwner(created.owner);
-      toast('Your board is ready.', 'success');
+      App.toast('Your board is ready.', 'success');
     } catch (err) {
-      toast(err.message, 'error');
+      App.toast(err.message, 'error');
     } finally {
       submitBtn.disabled = false;
     }
@@ -1723,8 +1579,7 @@
   el.saveSettings.addEventListener('click', () => {
     const val = el.apiBaseInput.value.trim();
     if (!val) return;
-    API_BASE = val.replace(/\/$/, '');
-    localStorage.setItem('rankings_api_base', API_BASE);
+    API_BASE = App.setApiBase(val);
     el.settingsDialog.close();
     loadRankings();
   });
@@ -1743,11 +1598,12 @@
       loading = false;
       setStatus('ok', API_BASE);
       if (selectedOwner && !findOwner(selectedOwner)) selectedOwner = null;
-      if (currentUser && findOwner(currentUser.username)) {
+      if (!selectedOwner && currentUser && findOwner(currentUser.username)) {
         selectedOwner = currentUser.username;
       } else if (!selectedOwner && owners.length > 0) {
         selectedOwner = owners[0].owner;
       }
+      updateOwnerUrl(selectedOwner);
       renderOwnerList();
       renderBoard();
       loadTierBreaks();
@@ -1757,31 +1613,29 @@
       setStatus('bad', 'can\u2019t reach ' + API_BASE);
       renderOwnerList();
       renderBoard();
-      toast('Couldn\u2019t load rankings: ' + err.message, 'error');
+      App.toast('Couldn\u2019t load rankings: ' + err.message, 'error');
     }
   }
 
   async function loadAuth() {
-    try {
-      currentUser = await api.me();
-      el.userName.textContent = currentUser.display_name || currentUser.username;
-      el.newBoardUser.textContent = currentUser.username;
-      el.logoutBtn.hidden = false;
-      el.adminBtn.hidden = !currentUser.is_admin;
-      return true;
-    } catch (err) {
-      if (err.status === 401) {
-        window.location.replace('login.html');
-        return false;
-      }
-      loading = false;
-      owners = [];
-      setStatus('bad', 'auth error');
-      renderOwnerList();
-      renderBoard();
-      toast(err.message, 'error');
-      return false;
-    }
+    currentUser = await App.initAuth({
+      userNameEl: el.userName,
+      statusDotEl: el.statusDot,
+      statusTextEl: el.statusText,
+      onError: (err) => {
+        loading = false;
+        owners = [];
+        setStatus('bad', 'auth error');
+        renderOwnerList();
+        renderBoard();
+        App.toast(err.message, 'error');
+      },
+    });
+    if (!currentUser) return false;
+    el.newBoardUser.textContent = currentUser.username;
+    el.logoutBtn.hidden = false;
+    el.adminBtn.hidden = !currentUser.is_admin;
+    return true;
   }
 
   el.logoutBtn.addEventListener('click', async () => {
@@ -1804,10 +1658,38 @@
     window.location.replace('admin.html');
   });
 
+  async function loadSyncStatus() {
+    try {
+      const data = await api.getSyncStatus();
+      if (data.last_success_at) {
+        el.syncStatus.hidden = false;
+        el.syncStatus.className = 'sync-status ok';
+        el.syncStatus.textContent = 'synced ' + App.fmtShortTime(data.last_success_at);
+        el.syncStatus.title = 'Last successful ESPN roster sync: ' + App.fmtTime(data.last_success_at);
+      } else if (data.enabled) {
+        el.syncStatus.hidden = false;
+        el.syncStatus.className = 'sync-status';
+        el.syncStatus.textContent = 'sync pending';
+        el.syncStatus.title = 'No successful ESPN roster sync yet.';
+      } else if (data.last_attempt_at && data.last_status === 'failure') {
+        el.syncStatus.hidden = false;
+        el.syncStatus.className = 'sync-status error';
+        el.syncStatus.textContent = 'sync failed';
+        el.syncStatus.title = data.last_error || 'Last ESPN roster sync failed.';
+      } else {
+        el.syncStatus.hidden = true;
+      }
+    } catch (err) {
+      el.syncStatus.hidden = true;
+    }
+  }
+
   async function init() {
     const authed = await loadAuth();
     if (!authed) return;
+    if (deepLinkOwner) selectedOwner = deepLinkOwner;
     await loadRankings();
+    await loadSyncStatus();
   }
 
   init();

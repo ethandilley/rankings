@@ -28,6 +28,24 @@ JOIN players p ON p.id = r.player_id
 WHERE p.position = ANY(sqlc.arg(positions)::text[])
 ORDER BY r.owner, r.rank;
 
+-- name: ListPlayerRankings :many
+WITH owner_totals AS (
+    SELECT owner, COUNT(*) AS total
+    FROM rankings
+    GROUP BY owner
+)
+SELECT
+    r.owner,
+    r.rank AS overall_rank,
+    RANK() OVER (PARTITION BY r.owner, p.position ORDER BY r.rank) AS positional_rank,
+    ot.total AS owner_total,
+    (r.rank::float8 / ot.total::float8)::float8 AS normalized_rank
+FROM rankings r
+JOIN players p ON p.id = r.player_id
+JOIN owner_totals ot ON ot.owner = r.owner
+WHERE r.player_id = $1
+ORDER BY r.owner, r.rank;
+
 -- name: ListDistinctPositions :many
 SELECT DISTINCT position
 FROM players
@@ -113,3 +131,45 @@ WHERE owner = $1 AND player_id = $2;
 -- name: DeleteRanking :exec
 DELETE FROM rankings
 WHERE owner = $1 AND player_id = $2;
+
+-- name: SnapshotCurrentRankings :exec
+WITH owner_totals AS (
+    SELECT owner, COUNT(*) AS total
+    FROM rankings
+    GROUP BY owner
+)
+INSERT INTO ranking_snapshots (taken_at, owner, player_id, rank, owner_total)
+SELECT $1, r.owner, r.player_id, r.rank, ot.total
+FROM rankings r
+JOIN owner_totals ot ON ot.owner = r.owner;
+
+-- name: CountSnapshotRows :one
+SELECT COUNT(*)::int
+FROM ranking_snapshots
+WHERE taken_at = $1;
+
+-- name: GetOwnerLatestSnapshotTakenAt :one
+SELECT MAX(taken_at)
+FROM ranking_snapshots
+WHERE owner = $1;
+
+-- name: ListSnapshotRanksForOwner :many
+SELECT player_id, rank
+FROM ranking_snapshots
+WHERE owner = $1 AND taken_at = $2;
+
+-- name: ListOwnerRankings :many
+SELECT player_id, rank
+FROM rankings
+WHERE owner = $1
+ORDER BY rank;
+
+-- name: ListPlayerSnapshotTrend :many
+SELECT
+    taken_at,
+    (AVG((rank::float8 / owner_total::float8)))::float8 AS avg_normalized_rank
+FROM ranking_snapshots
+WHERE player_id = $1
+GROUP BY taken_at
+ORDER BY taken_at;
+

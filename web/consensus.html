@@ -7,113 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css">
 <style>
-  :root {
-    --bg: #121212;
-    --bg-raised: #1a1a1a;
-    --bg-hover: #232323;
-    --text: #e8e8e8;
-    --text-soft: #9a9a9a;
-    --line: #2c2c2c;
-    --accent: #5b9dff;
-    --accent-deep: #4986e6;
-    --danger: #e0554f;
-    --danger-bg: #3a2321;
-    --success: #4caf7d;
-  }
-
-  * { box-sizing: border-box; }
-
-  html, body {
-    margin: 0;
-    padding: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  body { min-height: 100vh; }
-
-  .app-header {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 24px clamp(16px, 4vw, 48px) 18px;
-    border-bottom: 1px solid var(--line);
-    background: var(--bg);
-    flex-wrap: wrap;
-  }
-
-  .wordmark {
-    font-weight: 600;
-    font-size: clamp(22px, 3vw, 26px);
-    letter-spacing: -0.01em;
-    margin: 0;
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-  .wordmark .num { color: var(--accent); font-size: 0.6em; font-weight: 500; }
-
-  .tagline {
-    margin: 4px 0 0;
-    font-size: 13px;
-    color: var(--text-soft);
-    max-width: 60ch;
-  }
-
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--line);
-    flex-shrink: 0;
-  }
-  .status-dot.ok { background: var(--success); }
-  .status-dot.bad { background: var(--danger); }
-
-  .status-text { font-size: 12.5px; color: var(--text-soft); }
-
-  button.link-btn {
-    background: none;
-    border: none;
-    color: var(--text-soft);
-    font-family: inherit;
-    font-size: 12.5px;
-    text-decoration: underline;
-    text-underline-offset: 2px;
-    cursor: pointer;
-    padding: 4px;
-  }
-  button.link-btn:hover { color: var(--text); }
-
-  .btn.secondary {
-    font-family: inherit;
-    font-size: 12.5px;
-    font-weight: 600;
-    padding: 6px 10px;
-    border-radius: 6px;
-    border: 1px solid var(--line);
-    background: transparent;
-    color: var(--text);
-    cursor: pointer;
-  }
-  .btn.secondary:hover { background: var(--bg-hover); }
-  .btn.secondary.active {
-    background: rgba(91,157,255,0.12);
-    border-color: var(--accent-deep);
-    color: var(--accent);
-  }
-
   select.owner-select {
     font-family: inherit;
     font-size: 12.5px;
@@ -125,35 +20,6 @@
     color: var(--text);
     cursor: pointer;
   }
-
-  .page {
-    max-width: 980px;
-    margin: 0 auto;
-    padding: 28px clamp(16px, 3vw, 40px) 80px;
-  }
-
-  section { margin-bottom: 40px; }
-
-  .section-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin-bottom: 6px;
-  }
-  h2.section-title {
-    font-size: 16px;
-    font-weight: 600;
-    margin: 0;
-  }
-  .section-sub {
-    font-size: 12.5px;
-    color: var(--text-soft);
-    margin: 0 0 14px;
-    max-width: 75ch;
-  }
-  .section-sub b { color: var(--text); font-weight: 600; }
 
   .position-tabs {
     display: flex;
@@ -224,50 +90,61 @@
   .contrarian-line .scores b { color: var(--text); font-weight: 600; }
   .contrarian-line.none { color: var(--text-soft); font-size: 12.5px; }
 
-  .empty-state {
-    color: var(--text-soft);
-    font-size: 13.5px;
-    padding: 22px;
-    text-align: center;
-    border: 1px dashed var(--line);
-    border-radius: 8px;
-  }
-  .error-state {
-    color: var(--danger);
-    font-size: 13.5px;
-    padding: 16px;
-    text-align: center;
-    background: var(--danger-bg);
-    border: 1px solid var(--danger);
-    border-radius: 8px;
+  .contrarian-section .section-head {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg);
+    padding: 12px 0;
   }
 
-  .toast-stack {
-    position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    z-index: 50;
-    align-items: center;
+  .ranked-bar {
+    display: block;
+    height: 4px;
+    margin-top: 6px;
+    border-radius: 999px;
+    background: var(--accent);
+    min-width: 4px;
   }
-  .toast {
-    background: var(--bg-raised);
-    border: 1px solid var(--line);
-    color: var(--text);
-    border-radius: 6px;
-    padding: 10px 16px;
-    font-size: 13px;
-    box-shadow: 0 6px 24px rgba(0,0,0,0.4);
-    animation: toast-in 0.18s ease;
+
+  #printHeader { display: none; }
+
+  @media print {
+    body { background: #fff; color: #000; }
+    .app-header,
+    .position-tabs,
+    .section-sub,
+    .toast-stack,
+    .player-drawer,
+    .status-dot,
+    .status-text,
+    .link-btn { display: none !important; }
+    .page { max-width: none; padding: 0; }
+    .contrarian-section .section-head {
+      position: static;
+      background: #fff;
+      padding: 0 0 8px;
+    }
+    #printHeader {
+      display: block;
+      margin-bottom: 16px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #000;
+    }
+    h2.section-title,
+    .contrarian-owner,
+    .contrarian-line .player,
+    .label,
+    .scores b,
+    .meta,
+    table.bigboard th,
+    table.bigboard td { color: #000 !important; }
+    table.bigboard th,
+    table.bigboard td { border-color: #bbb; }
+    .ranked-bar { background: #bbb; }
   }
-  .toast.error { border-color: var(--danger); color: var(--danger); }
-  @keyframes toast-in {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
+
 </style>
 </head>
 <body>
@@ -288,6 +165,7 @@
 </header>
 
 <div class="page">
+  <div id="printHeader"></div>
   <section>
     <div class="section-head">
       <h2 class="section-title">League big board</h2>
@@ -297,7 +175,7 @@
     <div id="bigboardContent"><div class="empty-state">Loading…</div></div>
   </section>
 
-  <section>
+  <section class="contrarian-section">
     <div class="section-head">
       <h2 class="section-title">How contrarian is each owner</h2>
       <select class="owner-select" id="ownerSelect">
@@ -311,12 +189,10 @@
 
 <div class="toast-stack" id="toastStack"></div>
 
+<script src="app.js"></script>
 <script>
 (function () {
   'use strict';
-
-  const DEFAULT_API_BASE = (window.location.protocol === 'http:' || window.location.protocol === 'https:') ? window.location.origin : 'http://localhost:8081';
-  let API_BASE = localStorage.getItem('rankings_api_base') || DEFAULT_API_BASE;
 
   const el = {
     statusDot: document.getElementById('statusDot'),
@@ -327,10 +203,10 @@
     logoutBtn: document.getElementById('logoutBtn'),
     positionTabs: document.getElementById('positionTabs'),
     bigboardContent: document.getElementById('bigboardContent'),
-    ownerSelect: document.getElementById('ownerSelect'),
-    contrarianContent: document.getElementById('contrarianContent'),
-    toastStack: document.getElementById('toastStack'),
-  };
+      ownerSelect: document.getElementById('ownerSelect'),
+      contrarianContent: document.getElementById('contrarianContent'),
+      printHeader: document.getElementById('printHeader'),
+    };
 
   const POSITION_TABS = ['All', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'D/ST'];
   const KNOWN_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'D/ST']);
@@ -342,56 +218,9 @@
   let activePositionTab = 'All';
   let activeOwner = '';
 
-  function toast(message, kind) {
-    const t = document.createElement('div');
-    t.className = 'toast' + (kind ? ' ' + kind : '');
-    t.textContent = message;
-    el.toastStack.appendChild(t);
-    setTimeout(() => {
-      t.style.transition = 'opacity 0.25s ease';
-      t.style.opacity = '0';
-      setTimeout(() => t.remove(), 260);
-    }, 3600);
-  }
-
-  function friendlyError(status, bodyText) {
-    const trimmed = (bodyText || '').trim();
-    switch (status) {
-      case 400: return trimmed || 'That request was missing something required.';
-      case 401: return 'You need to log in first.';
-      case 404: return trimmed || 'Not found.';
-      case 500: return 'Something went wrong on the server. Try again.';
-      default: return trimmed || ('Request failed (' + status + ').');
-    }
-  }
-
-  async function apiRequest(path, options) {
-    const res = await fetch(API_BASE.replace(/\/$/, '') + path, Object.assign({
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    }, options));
-
-    if (!res.ok) {
-      const bodyText = await res.text().catch(() => '');
-      if (res.status === 401 && !path.startsWith('/auth/')) {
-        window.location.replace('login.html');
-        return new Promise(() => {});
-      }
-      const err = new Error(friendlyError(res.status, bodyText));
-      err.status = res.status;
-      throw err;
-    }
-    const text = await res.text();
-    return text ? JSON.parse(text) : null;
-  }
-
   function setStatus(ok, text) {
     el.statusDot.className = 'status-dot ' + (ok ? 'ok' : 'bad');
     el.statusText.textContent = text;
-  }
-
-  function fmtNorm(v) {
-    return Number.isFinite(v) ? v.toFixed(2) : '—';
   }
 
   function positionTabForPlayer(tab, player) {
@@ -411,7 +240,7 @@
       const count = bigboard ? bigboard.filter((p) => positionTabForPlayer(tab, p)).length : 0;
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'btn secondary' + (tab === activePositionTab ? ' active' : '');
+      btn.className = 'btn secondary small' + (tab === activePositionTab ? ' active' : '');
       btn.textContent = tab + ' (' + count + ')';
       btn.addEventListener('click', () => {
         activePositionTab = tab;
@@ -453,6 +282,8 @@
     }
     table.appendChild(head);
 
+    const maxOwners = bigboard.reduce((max, p) => Math.max(max, p.num_owners_ranked || 0), 1);
+
     rows.forEach((p, i) => {
       const tr = document.createElement('tr');
 
@@ -469,14 +300,20 @@
       meta.textContent = ' ' + (p.position || '?') + (p.team ? ' · ' + p.team : '');
       playerCell.appendChild(name);
       playerCell.appendChild(meta);
+      App.makePlayerClickable(playerCell, p.player_id);
 
       const avgCell = document.createElement('td');
       avgCell.className = 'num avg';
-      avgCell.textContent = fmtNorm(p.avg_normalized_rank);
+      avgCell.textContent = App.fmtNorm(p.avg_normalized_rank);
 
       const countCell = document.createElement('td');
       countCell.className = 'num';
       countCell.textContent = String(p.num_owners_ranked);
+      const bar = document.createElement('span');
+      bar.className = 'ranked-bar';
+      bar.style.width = Math.max(4, Math.round(((p.num_owners_ranked || 0) / maxOwners) * 100)) + '%';
+      bar.title = 'ranked by ' + (p.num_owners_ranked || 0) + ' owners';
+      countCell.appendChild(bar);
 
       tr.appendChild(rankCell);
       tr.appendChild(playerCell);
@@ -552,15 +389,16 @@
     playerEl.appendChild(document.createTextNode(p.player_name));
     playerEl.appendChild(meta);
     line.appendChild(playerEl);
+    App.makePlayerClickable(playerEl, p.player_id);
 
     const scores = document.createElement('div');
     scores.className = 'scores';
     const you = document.createElement('b');
-    you.textContent = fmtNorm(p.owner_normalized_rank);
+    you.textContent = App.fmtNorm(p.owner_normalized_rank);
     const field = document.createElement('b');
-    field.textContent = fmtNorm(p.field_normalized_rank);
+    field.textContent = App.fmtNorm(p.field_normalized_rank);
     const gap = document.createElement('b');
-    gap.textContent = fmtNorm(p.gap);
+    gap.textContent = App.fmtNorm(p.gap);
     scores.appendChild(you);
     scores.appendChild(document.createTextNode(' you · '));
     scores.appendChild(field);
@@ -572,6 +410,17 @@
     return line;
   }
 
+  function updateOwnerUrl(owner) {
+    App.updateQueryParam('owner', owner || '');
+  }
+
+  function renderPrintHeader() {
+    const date = new Date();
+    el.printHeader.textContent =
+      'League Consensus — ' + (activeOwner || 'whole league') + ' — ' +
+      date.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
   function populateOwnerSelect() {
     el.ownerSelect.innerHTML = '<option value="">whole league</option>';
     if (!contrarian || !contrarian.owners) return;
@@ -581,13 +430,18 @@
       opt.textContent = o.owner;
       el.ownerSelect.appendChild(opt);
     }
+    if (activeOwner && !contrarian.owners.some((o) => o.owner === activeOwner)) {
+      activeOwner = '';
+    }
     el.ownerSelect.value = activeOwner;
+    updateOwnerUrl(activeOwner);
+    renderPrintHeader();
   }
 
   async function loadBigboard() {
     el.bigboardContent.innerHTML = '<div class="empty-state">Loading…</div>';
     try {
-      bigboard = await apiRequest('/rankings/consensus');
+      bigboard = await App.api('/rankings/consensus');
       setStatus(true, 'connected');
       renderPositionTabs();
       renderBigboard();
@@ -597,14 +451,14 @@
       box.textContent = err.message;
       el.bigboardContent.appendChild(box);
       setStatus(false, 'error');
-      toast(err.message, 'error');
+      App.toast(err.message, 'error');
     }
   }
 
   async function loadContrarian() {
     el.contrarianContent.innerHTML = '<div class="empty-state">Loading…</div>';
     try {
-      contrarian = await apiRequest('/contrarian');
+      contrarian = await App.api('/contrarian');
       populateOwnerSelect();
       renderContrarian();
     } catch (err) {
@@ -613,30 +467,34 @@
       box.textContent = err.message;
       el.contrarianContent.appendChild(box);
       setStatus(false, 'error');
-      toast(err.message, 'error');
+      App.toast(err.message, 'error');
     }
   }
 
   el.ownerSelect.addEventListener('change', () => {
     activeOwner = el.ownerSelect.value;
+    updateOwnerUrl(activeOwner);
+    renderPrintHeader();
     renderContrarian();
   });
   el.boardBtn.addEventListener('click', () => { window.location.replace('index.html'); });
   el.tradesBtn.addEventListener('click', () => { window.location.replace('trades.html'); });
   el.logoutBtn.addEventListener('click', async () => {
     el.logoutBtn.disabled = true;
-    try { await apiRequest('/auth/logout', { method: 'POST' }); } catch (err) {}
+    try { await App.api('/auth/logout', { method: 'POST' }); } catch (err) {}
     window.location.replace('login.html');
   });
 
   async function init() {
-    try {
-      currentUser = await apiRequest('/auth/me');
-    } catch (err) {
-      window.location.replace('login.html');
-      return;
-    }
-    el.userName.textContent = currentUser.username;
+    currentUser = await App.initAuth({
+      userNameEl: el.userName,
+      statusDotEl: el.statusDot,
+      statusTextEl: el.statusText,
+    });
+    if (!currentUser) return;
+    const qsOwner = App.getQueryParam('owner');
+    if (qsOwner) activeOwner = qsOwner;
+    renderPrintHeader();
     loadBigboard();
     loadContrarian();
   }

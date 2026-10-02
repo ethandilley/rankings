@@ -253,6 +253,61 @@
     color: var(--danger);
   }
 
+  .sync-summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .sync-item {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(4, 15, 26, 0.65);
+    padding: 10px 12px;
+    min-width: 0;
+  }
+
+  .sync-label {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 5px;
+  }
+
+  .sync-value {
+    display: block;
+    font-size: 14px;
+    overflow-wrap: anywhere;
+  }
+
+  .sync-error {
+    color: var(--danger);
+  }
+
+  .sync-message {
+    overflow-wrap: anywhere;
+  }
+
+  .sync-message-cell {
+    max-width: 420px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .badge.success {
+    color: #b8f1c5;
+    background: rgba(98, 210, 111, 0.12);
+  }
+
+  .badge.failure {
+    color: #ffd0d0;
+    background: rgba(255, 123, 123, 0.12);
+  }
+
   @media (max-width: 760px) {
     .topbar {
       flex-direction: column;
@@ -260,6 +315,10 @@
     }
 
     .form-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .sync-summary {
       grid-template-columns: 1fr;
     }
 
@@ -289,6 +348,46 @@
   </header>
 
   <main class="content">
+    <section class="card">
+      <h2>ESPN roster sync</h2>
+      <div class="sync-summary">
+        <div class="sync-item">
+          <span class="sync-label">Auto sync</span>
+          <span id="syncEnabled" class="sync-value">loading</span>
+        </div>
+        <div class="sync-item">
+          <span class="sync-label">Last success</span>
+          <span id="syncLastSuccess" class="sync-value">—</span>
+        </div>
+        <div class="sync-item">
+          <span class="sync-label">Last attempt</span>
+          <span id="syncLastAttempt" class="sync-value">—</span>
+        </div>
+      </div>
+      <p id="syncError" class="message sync-error"></p>
+      <div class="actions">
+        <button id="dryRunSyncBtn" class="action" type="button">dry run</button>
+        <button id="runSyncBtn" class="action" type="button">run sync</button>
+      </div>
+      <p id="syncMessage" class="message sync-message"></p>
+      <div class="table-wrap" style="margin-top:16px;">
+        <table>
+          <thead>
+            <tr>
+              <th>started</th>
+              <th>source</th>
+              <th>status</th>
+              <th>result</th>
+              <th>message</th>
+            </tr>
+          </thead>
+          <tbody id="syncRows">
+            <tr><td colspan="5">loading</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="card">
       <h2>Add user</h2>
       <form id="addUserForm" class="form-grid">
@@ -332,15 +431,8 @@
   </main>
 </div>
 
+<script src="app.js"></script>
 <script>
-  const DEFAULT_API_BASE = (() => {
-    if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
-      return window.location.origin;
-    }
-    return 'http://localhost:8081';
-  })();
-  const apiBase = localStorage.getItem('rankings_api_base') || DEFAULT_API_BASE;
-
   const statusDot = document.getElementById('statusDot');
   const statusText = document.getElementById('statusText');
   const boardBtn = document.getElementById('boardBtn');
@@ -352,61 +444,127 @@
   const newAdmin = document.getElementById('newAdmin');
   const formMessage = document.getElementById('formMessage');
   const userRows = document.getElementById('userRows');
+  const syncEnabledEl = document.getElementById('syncEnabled');
+  const syncLastSuccessEl = document.getElementById('syncLastSuccess');
+  const syncLastAttemptEl = document.getElementById('syncLastAttempt');
+  const syncErrorEl = document.getElementById('syncError');
+  const syncMessageEl = document.getElementById('syncMessage');
+  const syncRowsEl = document.getElementById('syncRows');
+  const dryRunSyncBtn = document.getElementById('dryRunSyncBtn');
+  const runSyncBtn = document.getElementById('runSyncBtn');
 
   let currentUser = null;
+  let syncPollTimer = null;
 
-  function escapeHtml(value) {
-    return String(value ?? '')
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
+  function syncGuidance(message) {
+    if (/403|expired|invalid|credentials/i.test(message || '')) {
+      return ' Log in to fantasy.espn.com, copy the rotated ESPN_S2 and ESPN_SWID values into .envrc, then restart the server.';
+    }
+    return '';
   }
 
-  async function apiRequest(path, options = {}) {
-    const res = await fetch(apiBase + path, {
-      credentials: 'include',
-      ...options,
-      headers: {
-        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-        ...options.headers,
-      },
-    });
+  function syncResult(row) {
+    return [
+      row.inserted + ' added',
+      row.updated + ' updated',
+      row.deleted + ' deleted',
+      row.unchanged + ' unchanged',
+    ].join(', ');
+  }
 
-    if (res.status === 401) {
-      window.location.replace('login.html');
-      throw new Error('unauthorized');
+  function renderSyncLog(entries) {
+    if (!entries.length) {
+      syncRowsEl.innerHTML = '<tr><td colspan="5">No sync attempts logged yet.</td></tr>';
+      return;
     }
 
-    const contentType = res.headers.get('content-type') || '';
-    let body = null;
-    if (res.status !== 204 && contentType.includes('application/json')) {
-      body = await res.json();
-    }
+    syncRowsEl.innerHTML = entries.map((row) => {
+      const statusClass = row.status === 'success' ? 'success' : 'failure';
+      const message = row.message || (row.status === 'failure' ? 'unknown error' : '');
+      return `
+        <tr>
+          <td>${App.fmtTime(row.started_at)}</td>
+          <td>${App.escapeHtml(row.source)}</td>
+          <td><span class="badge ${statusClass}">${App.escapeHtml(row.status)}</span></td>
+          <td>${syncResult(row)}</td>
+          <td class="sync-message-cell" title="${App.escapeHtml(message)}">${App.escapeHtml(message)}</td>
+        </tr>
+      `;
+    }).join('');
+  }
 
-    if (!res.ok) {
-      throw new Error(body?.error || body?.message || res.statusText);
-    }
+  function renderSyncStatus(data) {
+    syncEnabledEl.textContent = data.enabled ? 'on · ' + (data.interval || '') : 'off';
+    syncLastSuccessEl.textContent = App.fmtTime(data.last_success_at);
+    syncLastAttemptEl.textContent = data.last_attempt_at
+      ? App.fmtTime(data.last_attempt_at) + ' · ' + (data.last_status || '')
+      : '—';
+    syncErrorEl.textContent = data.last_error ? data.last_error + syncGuidance(data.last_error) : '';
+    renderSyncLog(data.recent || []);
+  }
 
-    return body;
+  async function loadSyncStatus() {
+    try {
+      const data = await App.api('/sync/status');
+      renderSyncStatus(data);
+    } catch (err) {
+      if (err.status !== 401) {
+        syncEnabledEl.textContent = 'unknown';
+        syncErrorEl.textContent = err.message;
+      }
+    }
+  }
+
+  function startSyncPolling() {
+    stopSyncPolling();
+    loadSyncStatus();
+    syncPollTimer = setInterval(loadSyncStatus, 15000);
+  }
+
+  function stopSyncPolling() {
+    if (syncPollTimer) {
+      clearInterval(syncPollTimer);
+      syncPollTimer = null;
+    }
+  }
+
+  async function runSync(dryRun) {
+    const button = dryRun ? dryRunSyncBtn : runSyncBtn;
+    button.disabled = true;
+    syncMessageEl.textContent = dryRun ? 'Running dry run…' : 'Syncing rosters…';
+
+    try {
+      const report = await App.api(
+        '/admin/sync-players' + (dryRun ? '?dry_run=true' : ''),
+        { method: 'POST' },
+      );
+      syncMessageEl.textContent = (dryRun ? 'Dry run: ' : 'Sync applied: ') + syncResult(report);
+      await loadSyncStatus();
+    } catch (err) {
+      syncMessageEl.textContent = err.message;
+      if (!dryRun) {
+        await loadSyncStatus();
+      }
+    } finally {
+      button.disabled = false;
+    }
   }
 
   async function loadUsers() {
-    const users = await apiRequest('/admin/users');
+    const users = await App.api('/admin/users');
     renderUsers(users);
   }
 
   function renderUsers(users) {
     userRows.innerHTML = users.map((user) => {
-      const username = escapeHtml(user.username);
+      const username = App.escapeHtml(user.username);
       const adminClass = user.is_admin ? 'admin' : '';
       const adminLabel = user.is_admin ? 'admin' : 'member';
       const adminAction = user.is_admin ? 'remove admin' : 'make admin';
       return `
         <tr>
           <td>${username}</td>
-          <td>${escapeHtml(user.display_name)}</td>
+          <td>${App.escapeHtml(user.display_name)}</td>
           <td><span class="badge ${adminClass}">${adminLabel}</span></td>
           <td>
             <div class="actions">
@@ -429,7 +587,7 @@
 
   async function loadAuth() {
     try {
-      currentUser = await apiRequest('/auth/me');
+      currentUser = await App.api('/auth/me');
       statusDot.className = 'dot online';
       statusText.textContent = currentUser.display_name || currentUser.username;
 
@@ -439,8 +597,10 @@
       }
 
       await loadUsers();
+      startSyncPolling();
     } catch (err) {
-      if (err.message === 'unauthorized') {
+      if (err.status === 401) {
+        window.location.replace('login.html');
         return;
       }
       statusDot.className = 'dot offline';
@@ -453,9 +613,12 @@
     window.location.replace('index.html');
   });
 
+  dryRunSyncBtn.addEventListener('click', () => runSync(true));
+  runSyncBtn.addEventListener('click', () => runSync(false));
+
   logoutBtn.addEventListener('click', async () => {
     try {
-      await apiRequest('/auth/logout', { method: 'POST' });
+      await App.api('/auth/logout', { method: 'POST' });
     } finally {
       window.location.replace('login.html');
     }
@@ -466,7 +629,7 @@
     formMessage.textContent = 'creating...';
 
     try {
-      await apiRequest('/admin/users', {
+      await App.api('/admin/users', {
         method: 'POST',
         body: JSON.stringify({
           username: newUsername.value,
@@ -500,7 +663,7 @@
       }
 
       try {
-        await apiRequest(`/admin/users/${encodeURIComponent(username)}/password`, {
+        await App.api(`/admin/users/${encodeURIComponent(username)}/password`, {
           method: 'POST',
           body: JSON.stringify({ new_password: newPwd }),
         });
@@ -515,7 +678,7 @@
       const makeAdmin = button.dataset.admin === 'false';
 
       try {
-        await apiRequest(`/admin/users/${encodeURIComponent(username)}/admin`, {
+        await App.api(`/admin/users/${encodeURIComponent(username)}/admin`, {
           method: 'PATCH',
           body: JSON.stringify({ is_admin: makeAdmin }),
         });
@@ -532,7 +695,7 @@
       }
 
       try {
-        await apiRequest(`/admin/users/${encodeURIComponent(username)}`, {
+        await App.api(`/admin/users/${encodeURIComponent(username)}`, {
           method: 'DELETE',
         });
         await loadUsers();

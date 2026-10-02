@@ -5,13 +5,18 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
+	"github.com/ethandilley/rankings/internal/espn"
 	"github.com/ethandilley/rankings/internal/server/admin"
 	"github.com/ethandilley/rankings/internal/server/auth"
 	"github.com/ethandilley/rankings/internal/server/middleware"
 	"github.com/ethandilley/rankings/internal/server/players"
 	"github.com/ethandilley/rankings/internal/server/rankings"
+	"github.com/ethandilley/rankings/internal/server/syncstatus"
 	"github.com/ethandilley/rankings/internal/server/trades"
 	"github.com/jackc/pgx/v5"
 )
@@ -21,7 +26,10 @@ func main() {
 	if dbURL == "" {
 		log.Fatal("DB_URL not set")
 	}
-	conn, err := pgx.Connect(context.Background(), dbURL)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	conn, err := pgx.Connect(ctx, dbURL)
 	if err != nil {
 		log.Fatalf("failed to connect to db: %v", err)
 	}
@@ -30,7 +38,14 @@ func main() {
 	authService := auth.NewAuthService(conn)
 	rankingsService := rankings.NewRankingsService(conn, authService)
 	playerService := players.NewPlayersService(conn, authService)
-	adminService := admin.NewAdminService(conn, authService)
+
+	syncEnabled, syncInterval, err := syncstatus.IntervalFromEnv()
+	if err != nil {
+		log.Fatalf("failed to parse sync interval: %v", err)
+	}
+	espnService := espn.New(conn, espn.ConfigFromEnv())
+	syncService := syncstatus.New(conn, authService, espnService, syncEnabled, syncInterval)
+	adminService := admin.NewAdminService(conn, authService, espnService, syncService)
 	tradesService := trades.NewTradesService(conn, authService)
 
 	mux := http.NewServeMux()
@@ -38,6 +53,7 @@ func main() {
 	rankingsService.Register(mux)
 	playerService.Register(mux)
 	adminService.Register(mux)
+	syncService.Register(mux)
 	tradesService.Register(mux)
 	mux.Handle("/", http.FileServer(http.Dir(staticDir())))
 
@@ -45,8 +61,25 @@ func main() {
 	// or the UI, enough of a wall against retry-loops and scripts.
 	limiter := middleware.NewRateLimiter(5, 10)
 
+	syncService.Start(ctx)
+
+	srv := &http.Server{
+		Addr:    ":8080",
+		Handler: limiter.Wrap(withCORS(mux)),
+	}
+
 	log.Println("server listening on :8080")
-	if err := http.ListenAndServe(":8080", limiter.Wrap(withCORS(mux))); err != nil {
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.ListenAndServe()
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	case err := <-errCh:
 		log.Fatalf("failed to serve: %v", err)
 	}
 }

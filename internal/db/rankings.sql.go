@@ -7,6 +7,8 @@ package db
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const bigBoardConsensus = `-- name: BigBoardConsensus :many
@@ -77,6 +79,19 @@ func (q *Queries) BigBoardConsensus(ctx context.Context) ([]BigBoardConsensusRow
 	return items, nil
 }
 
+const countSnapshotRows = `-- name: CountSnapshotRows :one
+SELECT COUNT(*)::int
+FROM ranking_snapshots
+WHERE taken_at = $1
+`
+
+func (q *Queries) CountSnapshotRows(ctx context.Context, takenAt pgtype.Timestamptz) (int32, error) {
+	row := q.db.QueryRow(ctx, countSnapshotRows, takenAt)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const deleteRanking = `-- name: DeleteRanking :exec
 DELETE FROM rankings
 WHERE owner = $1 AND player_id = $2
@@ -100,6 +115,19 @@ WHERE owner = $1
 func (q *Queries) DeleteRankingsByOwner(ctx context.Context, owner string) error {
 	_, err := q.db.Exec(ctx, deleteRankingsByOwner, owner)
 	return err
+}
+
+const getOwnerLatestSnapshotTakenAt = `-- name: GetOwnerLatestSnapshotTakenAt :one
+SELECT MAX(taken_at)
+FROM ranking_snapshots
+WHERE owner = $1
+`
+
+func (q *Queries) GetOwnerLatestSnapshotTakenAt(ctx context.Context, owner string) (interface{}, error) {
+	row := q.db.QueryRow(ctx, getOwnerLatestSnapshotTakenAt, owner)
+	var max interface{}
+	err := row.Scan(&max)
+	return max, err
 }
 
 const insertRanking = `-- name: InsertRanking :exec
@@ -137,6 +165,126 @@ func (q *Queries) ListDistinctPositions(ctx context.Context) ([]string, error) {
 			return nil, err
 		}
 		items = append(items, position)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOwnerRankings = `-- name: ListOwnerRankings :many
+SELECT player_id, rank
+FROM rankings
+WHERE owner = $1
+ORDER BY rank
+`
+
+type ListOwnerRankingsRow struct {
+	PlayerID int64
+	Rank     int32
+}
+
+func (q *Queries) ListOwnerRankings(ctx context.Context, owner string) ([]ListOwnerRankingsRow, error) {
+	rows, err := q.db.Query(ctx, listOwnerRankings, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOwnerRankingsRow
+	for rows.Next() {
+		var i ListOwnerRankingsRow
+		if err := rows.Scan(&i.PlayerID, &i.Rank); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPlayerRankings = `-- name: ListPlayerRankings :many
+WITH owner_totals AS (
+    SELECT owner, COUNT(*) AS total
+    FROM rankings
+    GROUP BY owner
+)
+SELECT
+    r.owner,
+    r.rank AS overall_rank,
+    RANK() OVER (PARTITION BY r.owner, p.position ORDER BY r.rank) AS positional_rank,
+    ot.total AS owner_total,
+    (r.rank::float8 / ot.total::float8)::float8 AS normalized_rank
+FROM rankings r
+JOIN players p ON p.id = r.player_id
+JOIN owner_totals ot ON ot.owner = r.owner
+WHERE r.player_id = $1
+ORDER BY r.owner, r.rank
+`
+
+type ListPlayerRankingsRow struct {
+	Owner          string
+	OverallRank    int32
+	PositionalRank int64
+	OwnerTotal     int64
+	NormalizedRank float64
+}
+
+func (q *Queries) ListPlayerRankings(ctx context.Context, playerID int64) ([]ListPlayerRankingsRow, error) {
+	rows, err := q.db.Query(ctx, listPlayerRankings, playerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPlayerRankingsRow
+	for rows.Next() {
+		var i ListPlayerRankingsRow
+		if err := rows.Scan(
+			&i.Owner,
+			&i.OverallRank,
+			&i.PositionalRank,
+			&i.OwnerTotal,
+			&i.NormalizedRank,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPlayerSnapshotTrend = `-- name: ListPlayerSnapshotTrend :many
+SELECT
+    taken_at,
+    (AVG((rank::float8 / owner_total::float8)))::float8 AS avg_normalized_rank
+FROM ranking_snapshots
+WHERE player_id = $1
+GROUP BY taken_at
+ORDER BY taken_at
+`
+
+type ListPlayerSnapshotTrendRow struct {
+	TakenAt           pgtype.Timestamptz
+	AvgNormalizedRank float64
+}
+
+func (q *Queries) ListPlayerSnapshotTrend(ctx context.Context, playerID int64) ([]ListPlayerSnapshotTrendRow, error) {
+	rows, err := q.db.Query(ctx, listPlayerSnapshotTrend, playerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPlayerSnapshotTrendRow
+	for rows.Next() {
+		var i ListPlayerSnapshotTrendRow
+		if err := rows.Scan(&i.TakenAt, &i.AvgNormalizedRank); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -357,6 +505,59 @@ func (q *Queries) ListRankingsWithPositionalRankFiltered(ctx context.Context, po
 		return nil, err
 	}
 	return items, nil
+}
+
+const listSnapshotRanksForOwner = `-- name: ListSnapshotRanksForOwner :many
+SELECT player_id, rank
+FROM ranking_snapshots
+WHERE owner = $1 AND taken_at = $2
+`
+
+type ListSnapshotRanksForOwnerParams struct {
+	Owner   string
+	TakenAt pgtype.Timestamptz
+}
+
+type ListSnapshotRanksForOwnerRow struct {
+	PlayerID int64
+	Rank     int32
+}
+
+func (q *Queries) ListSnapshotRanksForOwner(ctx context.Context, arg ListSnapshotRanksForOwnerParams) ([]ListSnapshotRanksForOwnerRow, error) {
+	rows, err := q.db.Query(ctx, listSnapshotRanksForOwner, arg.Owner, arg.TakenAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSnapshotRanksForOwnerRow
+	for rows.Next() {
+		var i ListSnapshotRanksForOwnerRow
+		if err := rows.Scan(&i.PlayerID, &i.Rank); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const snapshotCurrentRankings = `-- name: SnapshotCurrentRankings :exec
+WITH owner_totals AS (
+    SELECT owner, COUNT(*) AS total
+    FROM rankings
+    GROUP BY owner
+)
+INSERT INTO ranking_snapshots (taken_at, owner, player_id, rank, owner_total)
+SELECT $1, r.owner, r.player_id, r.rank, ot.total
+FROM rankings r
+JOIN owner_totals ot ON ot.owner = r.owner
+`
+
+func (q *Queries) SnapshotCurrentRankings(ctx context.Context, takenAt pgtype.Timestamptz) error {
+	_, err := q.db.Exec(ctx, snapshotCurrentRankings, takenAt)
+	return err
 }
 
 const updateRankingRank = `-- name: UpdateRankingRank :exec

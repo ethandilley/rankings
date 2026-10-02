@@ -7,129 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css">
 <style>
-  :root {
-    --bg: #121212;
-    --bg-raised: #1a1a1a;
-    --bg-hover: #232323;
-    --text: #e8e8e8;
-    --text-soft: #9a9a9a;
-    --line: #2c2c2c;
-    --accent: #5b9dff;
-    --accent-deep: #4986e6;
-    --danger: #e0554f;
-    --danger-bg: #3a2321;
-    --success: #4caf7d;
-  }
-
-  * { box-sizing: border-box; }
-
-  html, body {
-    margin: 0;
-    padding: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  body { min-height: 100vh; }
-
-  .app-header {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 24px clamp(16px, 4vw, 48px) 18px;
-    border-bottom: 1px solid var(--line);
-    background: var(--bg);
-    flex-wrap: wrap;
-  }
-
-  .wordmark {
-    font-weight: 600;
-    font-size: clamp(22px, 3vw, 26px);
-    letter-spacing: -0.01em;
-    margin: 0;
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-  .wordmark .num { color: var(--accent); font-size: 0.6em; font-weight: 500; }
-
-  .tagline {
-    margin: 4px 0 0;
-    font-size: 13px;
-    color: var(--text-soft);
-    max-width: 60ch;
-  }
-
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--line);
-    flex-shrink: 0;
-  }
-  .status-dot.ok { background: var(--success); }
-  .status-dot.bad { background: var(--danger); }
-
-  .status-text { font-size: 12.5px; color: var(--text-soft); }
-
-  button.link-btn {
-    background: none;
-    border: none;
-    color: var(--text-soft);
-    font-family: inherit;
-    font-size: 12.5px;
-    text-decoration: underline;
-    text-underline-offset: 2px;
-    cursor: pointer;
-    padding: 4px;
-  }
-  button.link-btn:hover { color: var(--text); }
-
-  .btn {
-    font-family: inherit;
-    font-size: 13.5px;
-    font-weight: 600;
-    padding: 9px 14px;
-    border-radius: 6px;
-    border: 1px solid var(--accent);
-    background: var(--accent);
-    color: #0d1117;
-    cursor: pointer;
-    transition: opacity 0.12s ease, transform 0.08s ease;
-  }
-  .btn:hover { opacity: 0.88; }
-  .btn:active { transform: translateY(1px); }
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-  .btn.secondary {
-    background: transparent;
-    color: var(--text);
-    border-color: var(--line);
-  }
-  .btn.secondary:hover { background: var(--bg-hover); }
-  .btn.secondary.active {
-    background: rgba(91,157,255,0.12);
-    border-color: var(--accent-deep);
-    color: var(--accent);
-  }
-  .btn.small { padding: 6px 10px; font-size: 12.5px; }
-
-  .page {
-    max-width: 980px;
-    margin: 0 auto;
-    padding: 28px clamp(16px, 3vw, 40px) 80px;
-  }
-
   .excluded-note {
     font-size: 12.5px;
     color: var(--text-soft);
@@ -140,28 +19,6 @@
     margin: 0 0 28px;
   }
   .excluded-note b { color: var(--text); font-weight: 600; }
-
-  section { margin-bottom: 40px; }
-
-  .section-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin-bottom: 6px;
-  }
-  h2.section-title {
-    font-size: 16px;
-    font-weight: 600;
-    margin: 0;
-  }
-  .section-sub {
-    font-size: 12.5px;
-    color: var(--text-soft);
-    margin: 0 0 14px;
-    max-width: 75ch;
-  }
 
   .scope-toggle { display: flex; gap: 8px; }
 
@@ -204,24 +61,6 @@
   }
   .trade-detail b { color: var(--text); font-weight: 600; }
 
-  .empty-state {
-    color: var(--text-soft);
-    font-size: 13.5px;
-    padding: 22px;
-    text-align: center;
-    border: 1px dashed var(--line);
-    border-radius: 8px;
-  }
-  .error-state {
-    color: var(--danger);
-    font-size: 13.5px;
-    padding: 16px;
-    text-align: center;
-    background: var(--danger-bg);
-    border: 1px solid var(--danger);
-    border-radius: 8px;
-  }
-
   table.disagreement {
     width: 100%;
     border-collapse: collapse;
@@ -246,32 +85,6 @@
   table.disagreement .spread { color: var(--accent); font-weight: 600; }
   table.disagreement .rater { color: var(--text-soft); font-size: 12px; }
 
-  .toast-stack {
-    position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    z-index: 50;
-    align-items: center;
-  }
-  .toast {
-    background: var(--bg-raised);
-    border: 1px solid var(--line);
-    color: var(--text);
-    border-radius: 6px;
-    padding: 10px 16px;
-    font-size: 13px;
-    box-shadow: 0 6px 24px rgba(0,0,0,0.4);
-    animation: toast-in 0.18s ease;
-  }
-  .toast.error { border-color: var(--danger); color: var(--danger); }
-  @keyframes toast-in {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
 </style>
 </head>
 <body>
@@ -319,12 +132,10 @@
 
 <div class="toast-stack" id="toastStack"></div>
 
+<script src="app.js"></script>
 <script>
 (function () {
   'use strict';
-
-  const DEFAULT_API_BASE = (window.location.protocol === 'http:' || window.location.protocol === 'https:') ? window.location.origin : 'http://localhost:8081';
-  let API_BASE = localStorage.getItem('rankings_api_base') || DEFAULT_API_BASE;
 
   const el = {
     statusDot: document.getElementById('statusDot'),
@@ -338,62 +149,15 @@
     scopeLeague: document.getElementById('scopeLeague'),
     pairwiseContent: document.getElementById('pairwiseContent'),
     disagreementContent: document.getElementById('disagreementContent'),
-    toastStack: document.getElementById('toastStack'),
   };
 
   let currentUser = null;
   let scope = 'me';
-
-  function toast(message, kind) {
-    const t = document.createElement('div');
-    t.className = 'toast' + (kind ? ' ' + kind : '');
-    t.textContent = message;
-    el.toastStack.appendChild(t);
-    setTimeout(() => {
-      t.style.transition = 'opacity 0.25s ease';
-      t.style.opacity = '0';
-      setTimeout(() => t.remove(), 260);
-    }, 3600);
-  }
-
-  function friendlyError(status, bodyText) {
-    const trimmed = (bodyText || '').trim();
-    switch (status) {
-      case 400: return trimmed || 'That request was missing something required.';
-      case 401: return 'You need to log in first.';
-      case 404: return trimmed || 'Owner not found.';
-      case 500: return 'Something went wrong on the server. Try again.';
-      default: return trimmed || ('Request failed (' + status + ').');
-    }
-  }
-
-  async function apiRequest(path, options) {
-    const res = await fetch(API_BASE.replace(/\/$/, '') + path, Object.assign({
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    }, options));
-
-    if (!res.ok) {
-      const bodyText = await res.text().catch(() => '');
-      if (res.status === 401 && !path.startsWith('/auth/')) {
-        window.location.replace('login.html');
-        return new Promise(() => {});
-      }
-      const err = new Error(friendlyError(res.status, bodyText));
-      err.status = res.status;
-      throw err;
-    }
-    const text = await res.text();
-    return text ? JSON.parse(text) : null;
-  }
+  let scopeOwner = '';
 
   function setStatus(ok, text) {
     el.statusDot.className = 'status-dot ' + (ok ? 'ok' : 'bad');
     el.statusText.textContent = text;
-  }
-
-  function fmtNorm(v) {
-    return Number.isFinite(v) ? v.toFixed(2) : '—';
   }
 
   function fmtScore(v) {
@@ -408,6 +172,7 @@
     meta.textContent = (p.position || '?') + (p.team ? ' · ' + p.team : '');
     span.appendChild(document.createTextNode(p.player_name));
     span.appendChild(meta);
+    App.makePlayerClickable(span, p.player_id);
     return span;
   }
 
@@ -429,8 +194,9 @@
     if (!data.suggestions || !data.suggestions.length) {
       const empty = document.createElement('div');
       empty.className = 'empty-state';
+      const ownerLabel = scopeOwner && currentUser && scopeOwner !== currentUser.username ? scopeOwner : 'you';
       empty.textContent = scope === 'me'
-        ? 'No mutually beneficial trades found between you and the rest of the league right now.'
+        ? 'No mutually beneficial trades found between ' + ownerLabel + ' and the rest of the league right now.'
         : 'No mutually beneficial trades found across the whole league right now.';
       el.pairwiseContent.appendChild(empty);
       return;
@@ -489,16 +255,16 @@
       aLineB.textContent = s.owner_a + ': ';
       aLine.appendChild(aLineB);
       aLine.appendChild(document.createTextNode(
-        'ranks ' + s.owner_a_gives.player_name + ' at ' + fmtNorm(s.a_norm_of_a_gives)
-        + ', ranks ' + s.owner_b_gives.player_name + ' at ' + fmtNorm(s.a_norm_of_b_gives)
+        'ranks ' + s.owner_a_gives.player_name + ' at ' + App.fmtNorm(s.a_norm_of_a_gives)
+        + ', ranks ' + s.owner_b_gives.player_name + ' at ' + App.fmtNorm(s.a_norm_of_b_gives)
         + ' — prefers receiving it'));
       const bLine = document.createElement('div');
       const bLineB = document.createElement('b');
       bLineB.textContent = s.owner_b + ': ';
       bLine.appendChild(bLineB);
       bLine.appendChild(document.createTextNode(
-        'ranks ' + s.owner_a_gives.player_name + ' at ' + fmtNorm(s.b_norm_of_a_gives)
-        + ', ranks ' + s.owner_b_gives.player_name + ' at ' + fmtNorm(s.b_norm_of_b_gives)
+        'ranks ' + s.owner_a_gives.player_name + ' at ' + App.fmtNorm(s.b_norm_of_a_gives)
+        + ', ranks ' + s.owner_b_gives.player_name + ' at ' + App.fmtNorm(s.b_norm_of_b_gives)
         + ' — prefers receiving it'));
       detail.appendChild(aLine);
       detail.appendChild(bLine);
@@ -546,6 +312,7 @@
       meta.textContent = ' ' + (p.position || '?') + (p.team ? ' · ' + p.team : '');
       playerCell.appendChild(name);
       playerCell.appendChild(meta);
+      App.makePlayerClickable(playerCell, p.player_id);
 
       const countCell = document.createElement('td');
       countCell.className = 'num';
@@ -553,15 +320,15 @@
 
       const bestCell = document.createElement('td');
       bestCell.className = 'num';
-      bestCell.textContent = fmtNorm(p.best_normalized_rank);
+      bestCell.textContent = App.fmtNorm(p.best_normalized_rank);
 
       const worstCell = document.createElement('td');
       worstCell.className = 'num';
-      worstCell.textContent = fmtNorm(p.worst_normalized_rank);
+      worstCell.textContent = App.fmtNorm(p.worst_normalized_rank);
 
       const spreadCell = document.createElement('td');
       spreadCell.className = 'num spread';
-      spreadCell.textContent = fmtNorm(p.disagreement_spread);
+      spreadCell.textContent = App.fmtNorm(p.disagreement_spread);
 
       const bestBy = document.createElement('td');
       bestBy.className = 'rater';
@@ -588,10 +355,10 @@
   async function loadPairwise() {
     el.pairwiseContent.innerHTML = '<div class="empty-state">Loading…</div>';
     const path = scope === 'me'
-      ? '/trade-suggestions/pairwise?owner=' + encodeURIComponent(currentUser.username)
+      ? '/trade-suggestions/pairwise?owner=' + encodeURIComponent(scopeOwner || currentUser.username)
       : '/trade-suggestions/pairwise';
     try {
-      const data = await apiRequest(path);
+      const data = await App.api(path);
       renderPairwise(data);
       renderExcluded(data.excluded_owners);
     } catch (err) {
@@ -600,14 +367,14 @@
       box.textContent = err.message;
       el.pairwiseContent.appendChild(box);
       setStatus(false, 'error');
-      toast(err.message, 'error');
+      App.toast(err.message, 'error');
     }
   }
 
   async function loadDisagreements() {
     el.disagreementContent.innerHTML = '<div class="empty-state">Loading…</div>';
     try {
-      const data = await apiRequest('/trade-suggestions/disagreements?limit=25');
+      const data = await App.api('/trade-suggestions/disagreements?limit=25');
       renderDisagreement(data);
       renderExcluded(data.excluded_owners);
     } catch (err) {
@@ -616,15 +383,25 @@
       box.textContent = err.message;
       el.disagreementContent.appendChild(box);
       setStatus(false, 'error');
-      toast(err.message, 'error');
+      App.toast(err.message, 'error');
     }
+  }
+
+  function updateTradeUrl() {
+    App.updateQueryParam('scope', scope === 'league' ? 'all' : '');
+    App.updateQueryParam(
+      'owner',
+      scope === 'me' && scopeOwner && currentUser && scopeOwner !== currentUser.username ? scopeOwner : ''
+    );
   }
 
   function setScope(next) {
     if (scope === next) return;
     scope = next;
+    scopeOwner = next === 'me' ? currentUser.username : '';
     el.scopeMe.classList.toggle('active', scope === 'me');
     el.scopeLeague.classList.toggle('active', scope === 'league');
+    updateTradeUrl();
     loadPairwise();
   }
 
@@ -634,19 +411,29 @@
   el.consensusBtn.addEventListener('click', () => { window.location.replace('consensus.html'); });
   el.logoutBtn.addEventListener('click', async () => {
     el.logoutBtn.disabled = true;
-    try { await apiRequest('/auth/logout', { method: 'POST' }); } catch (err) {}
+    try { await App.api('/auth/logout', { method: 'POST' }); } catch (err) {}
     window.location.replace('login.html');
   });
 
   async function init() {
-    try {
-      currentUser = await apiRequest('/auth/me');
-    } catch (err) {
-      window.location.replace('login.html');
-      return;
+    currentUser = await App.initAuth({
+      userNameEl: el.userName,
+      statusDotEl: el.statusDot,
+      statusTextEl: el.statusText,
+    });
+    if (!currentUser) return;
+    const qsScope = App.getQueryParam('scope');
+    const qsOwner = App.getQueryParam('owner');
+    if (qsScope === 'all' || qsScope === 'league') {
+      scope = 'league';
+      scopeOwner = '';
+    } else {
+      scope = 'me';
+      scopeOwner = qsOwner || currentUser.username;
     }
-    el.userName.textContent = currentUser.username;
-    setStatus(true, 'connected');
+    el.scopeMe.classList.toggle('active', scope === 'me');
+    el.scopeLeague.classList.toggle('active', scope === 'league');
+    updateTradeUrl();
     loadPairwise();
     loadDisagreements();
   }

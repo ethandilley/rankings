@@ -26,11 +26,34 @@ type Ranking struct {
 	PlayerID  int64
 }
 
+type RankingSnapshot struct {
+	ID         int64
+	TakenAt    pgtype.Timestamptz
+	Owner      string
+	PlayerID   int64
+	Rank       int32
+	OwnerTotal int32
+}
+
 type Session struct {
 	Token     string
 	UserID    int64
 	CreatedAt pgtype.Timestamptz
 	ExpiresAt pgtype.Timestamptz
+}
+
+type SyncLog struct {
+	ID                 int64
+	StartedAt          pgtype.Timestamptz
+	FinishedAt         pgtype.Timestamptz
+	Source             string
+	Status             string
+	Message            pgtype.Text
+	Inserted           int32
+	Updated            int32
+	Deleted            int32
+	Unchanged          int32
+	DeleteSkippedCount int32
 }
 
 type TierBreak struct {

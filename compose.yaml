@@ -16,6 +16,7 @@ services:
       - ESPN_SWID=${ESPN_SWID:-}
       - ESPN_LEAGUE_ID=${ESPN_LEAGUE_ID:-260889507}
       - ESPN_SEASON=${ESPN_SEASON:-2026}
+      - ESPN_SYNC_INTERVAL=${ESPN_SYNC_INTERVAL:-}
   espn-sync:
     build:
       context: .
@@ -31,6 +32,17 @@ services:
       - ESPN_SWID=${ESPN_SWID}
       - ESPN_LEAGUE_ID=${ESPN_LEAGUE_ID:-260889507}
       - ESPN_SEASON=${ESPN_SEASON:-2026}
+  rankings-snapshot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: ["snapshot"]
+    command: ["/bin/rankings-snapshot"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB_URL=postgres://user:password@postgres:5432/rankings?sslmode=disable
   postgres:
     image: postgres:18
     environment:

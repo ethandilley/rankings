@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ethandilley/rankings/internal/db"
 	"github.com/ethandilley/rankings/internal/server/auth"
@@ -61,6 +62,49 @@ type BigBoardEntry struct {
 	Team              string  `json:"team"`
 	AvgNormalizedRank float64 `json:"avg_normalized_rank"`
 	NumOwnersRanked   int     `json:"num_owners_ranked"`
+}
+
+type PlayerDetail struct {
+	PlayerID   int64                   `json:"player_id"`
+	PlayerName string                  `json:"player_name"`
+	Position   string                  `json:"position"`
+	Team       string                  `json:"team"`
+	DraftedBy  *string                 `json:"drafted_by,omitempty"`
+	Rankings   []PlayerDetailRanking   `json:"rankings"`
+	Consensus  *PlayerDetailConsensus  `json:"consensus,omitempty"`
+	Trend      []PlayerTrendPoint      `json:"trend"`
+}
+
+type PlayerTrendPoint struct {
+	TakenAt           time.Time `json:"taken_at"`
+	AvgNormalizedRank float64   `json:"avg_normalized_rank"`
+}
+
+type OwnerMovement struct {
+	Owner           string           `json:"owner"`
+	SnapshotTakenAt *time.Time       `json:"snapshot_taken_at,omitempty"`
+	Players         []PlayerMovement `json:"players"`
+}
+
+type PlayerMovement struct {
+	PlayerID     int64  `json:"player_id"`
+	CurrentRank  int    `json:"current_rank"`
+	PreviousRank *int   `json:"previous_rank,omitempty"`
+	Delta        *int   `json:"delta,omitempty"`
+}
+
+type PlayerDetailRanking struct {
+	Owner          string  `json:"owner"`
+	OverallRank    int     `json:"overall_rank"`
+	PositionalRank int     `json:"positional_rank"`
+	OwnerTotal     int     `json:"owner_total"`
+	NormalizedRank float64 `json:"normalized_rank"`
+}
+
+type PlayerDetailConsensus struct {
+	AvgNormalizedRank float64 `json:"avg_normalized_rank"`
+	NumOwnersRanked   int     `json:"num_owners_ranked"`
+	Percentile        float64 `json:"percentile"`
 }
 
 type OwnerRanking struct {
@@ -144,6 +188,8 @@ func (h *RankingsService) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /rankings", h.auth.RequireAuth(h.getRankings))
 	mux.HandleFunc("POST /rankings", h.auth.RequireAuth(h.postRankings))
 	mux.HandleFunc("GET /rankings/consensus", h.auth.RequireAuth(h.getConsensus))
+	mux.HandleFunc("GET /rankings/player/{id}", h.auth.RequireAuth(h.getPlayerDetail))
+	mux.HandleFunc("GET /rankings/movement/{owner}", h.auth.RequireAuth(h.getOwnerMovement))
 	mux.HandleFunc("PATCH /rankings/{owner}/move", h.auth.RequireAuth(h.moveRanking))
 	mux.HandleFunc("POST /rankings/{owner}/players", h.auth.RequireAuth(h.addPlayer))
 	mux.HandleFunc("DELETE /rankings/{owner}/players/{player}", h.auth.RequireAuth(h.removePlayer))
@@ -349,6 +395,184 @@ func (h *RankingsService) getConsensus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *RankingsService) getPlayerDetail(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	raw := r.PathValue("id")
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		http.Error(w, "player id must be an integer", http.StatusBadRequest)
+		return
+	}
+
+	player, err := h.q.GetPlayerByID(ctx, id)
+	if err != nil {
+		http.Error(w, "player not found", http.StatusNotFound)
+		return
+	}
+
+	rows, err := h.q.ListPlayerRankings(ctx, id)
+	if err != nil {
+		http.Error(w, "failed to load rankings", http.StatusInternalServerError)
+		return
+	}
+
+	rankings := make([]PlayerDetailRanking, 0, len(rows))
+	for _, row := range rows {
+		rankings = append(rankings, PlayerDetailRanking{
+			Owner:          row.Owner,
+			OverallRank:    int(row.OverallRank),
+			PositionalRank: int(row.PositionalRank),
+			OwnerTotal:     int(row.OwnerTotal),
+			NormalizedRank: row.NormalizedRank,
+		})
+	}
+
+	consensus, err := h.playerConsensus(ctx, id)
+	if err != nil {
+		http.Error(w, "failed to load consensus", http.StatusInternalServerError)
+		return
+	}
+
+	trendRows, err := h.q.ListPlayerSnapshotTrend(ctx, id)
+	if err != nil {
+		http.Error(w, "failed to load trend", http.StatusInternalServerError)
+		return
+	}
+
+	trend := make([]PlayerTrendPoint, 0, len(trendRows))
+	for _, row := range trendRows {
+		if !row.TakenAt.Valid {
+			continue
+		}
+		trend = append(trend, PlayerTrendPoint{
+			TakenAt:           row.TakenAt.Time,
+			AvgNormalizedRank: row.AvgNormalizedRank,
+		})
+	}
+
+	out := PlayerDetail{
+		PlayerID:   player.ID,
+		PlayerName: player.PlayerName,
+		Position:   player.Position,
+		Team:       player.Team,
+		Rankings:   rankings,
+		Consensus:  consensus,
+		Trend:      trend,
+	}
+	if player.DraftedByUsername.Valid {
+		owner := player.DraftedByUsername.String
+		out.DraftedBy = &owner
+	}
+
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *RankingsService) playerConsensus(ctx context.Context, playerID int64) (*PlayerDetailConsensus, error) {
+	rows, err := h.q.BigBoardConsensus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if rows[i].PlayerID == playerID {
+			return &PlayerDetailConsensus{
+				AvgNormalizedRank: rows[i].AvgNormalizedRank,
+				NumOwnersRanked:   int(rows[i].NumOwnersRanked),
+				Percentile:        bigBoardPercentile(rows, i),
+			}, nil
+		}
+	}
+	return nil, nil
+}
+
+func bigBoardPercentile(rows []db.BigBoardConsensusRow, index int) float64 {
+	n := len(rows)
+	if n <= 1 {
+		return 100
+	}
+	target := rows[index].AvgNormalizedRank
+	worse, ties := 0, 0
+	for _, row := range rows {
+		switch {
+		case row.AvgNormalizedRank > target:
+			worse++
+		case row.AvgNormalizedRank == target:
+			ties++
+		}
+	}
+	return 100 * (float64(worse) + 0.5*float64(ties-1)) / float64(n-1)
+}
+
+// ---------------------------------------------------------------------------
+// GET /rankings/movement/{owner}
+// ---------------------------------------------------------------------------
+
+func (h *RankingsService) getOwnerMovement(w http.ResponseWriter, r *http.Request) {
+	owner, ok := h.requireOwner(w, r)
+	if !ok {
+		return
+	}
+
+	ctx := r.Context()
+	latestRaw, err := h.q.GetOwnerLatestSnapshotTakenAt(ctx, owner)
+	if err != nil {
+		http.Error(w, "failed to load snapshot", http.StatusInternalServerError)
+		return
+	}
+
+	resp := OwnerMovement{
+		Owner:   owner,
+		Players: []PlayerMovement{},
+	}
+
+	if latestRaw == nil {
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
+	latest, ok := latestRaw.(time.Time)
+	if !ok {
+		http.Error(w, "invalid snapshot time", http.StatusInternalServerError)
+		return
+	}
+	resp.SnapshotTakenAt = &latest
+
+	previousRows, err := h.q.ListSnapshotRanksForOwner(ctx, db.ListSnapshotRanksForOwnerParams{
+		Owner:   owner,
+		TakenAt: pgtype.Timestamptz{Time: latest, Valid: true},
+	})
+	if err != nil {
+		http.Error(w, "failed to load snapshot", http.StatusInternalServerError)
+		return
+	}
+
+	previous := make(map[int64]int, len(previousRows))
+	for _, row := range previousRows {
+		previous[row.PlayerID] = int(row.Rank)
+	}
+
+	currentRows, err := h.q.ListOwnerRankings(ctx, owner)
+	if err != nil {
+		http.Error(w, "failed to load rankings", http.StatusInternalServerError)
+		return
+	}
+
+	for _, row := range currentRows {
+		player := PlayerMovement{
+			PlayerID:    row.PlayerID,
+			CurrentRank: int(row.Rank),
+		}
+		if prev, ok := previous[row.PlayerID]; ok {
+			previousRank := prev
+			delta := player.CurrentRank - prev
+			player.PreviousRank = &previousRank
+			player.Delta = &delta
+		}
+		resp.Players = append(resp.Players, player)
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // ---------------------------------------------------------------------------

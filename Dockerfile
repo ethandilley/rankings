@@ -5,5 +5,6 @@ COPY go.mod ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/server ./cmd/server && \
-    CGO_ENABLED=0 GOOS=linux go build -o /bin/espn-sync ./cmd/espn-sync
+    CGO_ENABLED=0 GOOS=linux go build -o /bin/espn-sync ./cmd/espn-sync && \
+    CGO_ENABLED=0 GOOS=linux go build -o /bin/rankings-snapshot ./cmd/rankings-snapshot
 CMD ["/bin/server"]

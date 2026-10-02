@@ -15,6 +15,7 @@ import (
 	"github.com/ethandilley/rankings/internal/db"
 	"github.com/ethandilley/rankings/internal/espn"
 	"github.com/ethandilley/rankings/internal/server/auth"
+	"github.com/ethandilley/rankings/internal/server/syncstatus"
 )
 
 type AdminService struct {
@@ -22,14 +23,21 @@ type AdminService struct {
 	q    *db.Queries
 	auth *auth.AuthService
 	espn *espn.Service
+	sync *syncstatus.Service
 }
 
-func NewAdminService(conn *pgx.Conn, auth *auth.AuthService) *AdminService {
+func NewAdminService(
+	conn *pgx.Conn,
+	auth *auth.AuthService,
+	espnService *espn.Service,
+	syncService *syncstatus.Service,
+) *AdminService {
 	return &AdminService{
 		conn: conn,
 		q:    db.New(conn),
 		auth: auth,
-		espn: espn.New(conn, espn.ConfigFromEnv()),
+		espn: espnService,
+		sync: syncService,
 	}
 }
 
@@ -50,7 +58,13 @@ func (s *AdminService) syncPlayers(w http.ResponseWriter, r *http.Request) {
 		dryRun = true
 	}
 
-	report, err := s.espn.Sync(r.Context(), dryRun)
+	var report *espn.Report
+	var err error
+	if s.sync != nil {
+		report, err = s.sync.Run(r.Context(), "manual", dryRun)
+	} else {
+		report, err = s.espn.Sync(r.Context(), dryRun)
+	}
 	if err != nil {
 		if errors.Is(err, espn.ErrFetchFailed) {
 			http.Error(w, err.Error(), http.StatusBadGateway)

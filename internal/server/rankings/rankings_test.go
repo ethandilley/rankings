@@ -163,6 +163,34 @@ func TestTierForRank(t *testing.T) {
 	}
 }
 
+func TestBigBoardPercentile(t *testing.T) {
+	mk := func(name string, avg float64) db.BigBoardConsensusRow {
+		return db.BigBoardConsensusRow{PlayerID: 1, PlayerName: name, AvgNormalizedRank: avg}
+	}
+
+	tests := []struct {
+		name  string
+		rows  []db.BigBoardConsensusRow
+		index int
+		want  float64
+	}{
+		{name: "empty is 100", rows: nil, index: 0, want: 100},
+		{name: "single player is 100", rows: []db.BigBoardConsensusRow{mk("A", 0.10)}, index: 0, want: 100},
+		{name: "best of many is 100", rows: []db.BigBoardConsensusRow{mk("A", 0.01), mk("B", 0.20), mk("C", 0.40), mk("D", 0.90)}, index: 0, want: 100},
+		{name: "worst of many is 0", rows: []db.BigBoardConsensusRow{mk("A", 0.01), mk("B", 0.20), mk("C", 0.40), mk("D", 0.90)}, index: 3, want: 0},
+		{name: "middle ranks between", rows: []db.BigBoardConsensusRow{mk("A", 0.01), mk("B", 0.20), mk("C", 0.40), mk("D", 0.90)}, index: 1, want: 66.66666666666667},
+		{name: "ties split the difference", rows: []db.BigBoardConsensusRow{mk("A", 0.10), mk("B", 0.10), mk("C", 0.50)}, index: 0, want: 75},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := bigBoardPercentile(tt.rows, tt.index); got != tt.want {
+				t.Errorf("bigBoardPercentile() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestValidateTierBreaks(t *testing.T) {
 	tests := []struct {
 		name    string

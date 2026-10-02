@@ -4,20 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Login · Rankings</title>
+<link rel="stylesheet" href="app.css">
 <style>
-:root {
-  --bg: #121212;
-  --bg-raised: #1a1a1a;
-  --bg-hover: #232323;
-  --text: #e8e8e8;
-  --text-soft: #9a9a9a;
-  --line: #2c2c2c;
-  --accent: #5b9dff;
-  --accent-deep: #4986e6;
-  --danger: #e0554f;
-  --danger-bg: #3a2321;
-  --success: #4caf7d;
-}
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
 body {
@@ -168,10 +156,8 @@ details.connection[open] summary::before { content: "▾ "; }
   </details>
 </div>
 
+<script src="app.js"></script>
 <script>
-const DEFAULT_API_BASE = (window.location.protocol === 'http:' || window.location.protocol === 'https:') ? window.location.origin : 'http://localhost:8081';
-let API_BASE = localStorage.getItem('rankings_api_base') || DEFAULT_API_BASE;
-
 const el = {};
 ['status', 'loginForm', 'username', 'password', 'loginBtn', 'apiBaseInput'].forEach(id => el[id] = document.getElementById(id));
 
@@ -184,38 +170,9 @@ function clearStatus() {
   el.status.textContent = '';
 }
 
-function apiURL(path) {
-  return API_BASE.replace(/\/+$/, '') + path;
-}
-
-async function api(path, options = {}) {
-  const res = await fetch(apiURL(path), {
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-
-  let body = null;
-  const text = await res.text();
-  if (text) {
-    try { body = JSON.parse(text); } catch { body = text; }
-  }
-
-  if (!res.ok) {
-    const message = typeof body === 'object' && body !== null && body.error
-      ? body.error
-      : (typeof body === 'string' && body ? body : res.statusText);
-    const err = new Error(message);
-    err.status = res.status;
-    throw err;
-  }
-
-  return body;
-}
-
 function errorMessage(err) {
   if (err.name === 'TypeError') {
-    return `Cannot reach the API at ${API_BASE.replace(/\/+$/, '')}. Check the connection settings below.`;
+    return `Cannot reach the API at ${App.apiBase()}. Check the connection settings below.`;
   }
   if (err.status === 401) return 'Invalid username or password.';
   if (err.status === 403) return 'This account is not allowed to sign in.';
@@ -225,7 +182,7 @@ function errorMessage(err) {
 
 async function checkSession() {
   try {
-    await api('/auth/me');
+    await App.api('/auth/me');
     window.location.replace('index.html');
     return true;
   } catch (err) {
@@ -234,7 +191,7 @@ async function checkSession() {
       return false;
     }
     if (err.name === 'TypeError') {
-      setStatus('error', `Cannot reach the API at ${API_BASE.replace(/\/+$/, '')}. Check the connection settings below.`);
+      setStatus('error', `Cannot reach the API at ${App.apiBase()}. Check the connection settings below.`);
       return false;
     }
     setStatus('error', errorMessage(err));
@@ -257,7 +214,7 @@ el.loginForm.addEventListener('submit', async (e) => {
   clearStatus();
 
   try {
-    await api('/auth/login', {
+    await App.api('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     });
@@ -274,18 +231,12 @@ el.loginForm.addEventListener('submit', async (e) => {
 });
 
 el.apiBaseInput.addEventListener('change', () => {
-  const raw = el.apiBaseInput.value.trim();
-  API_BASE = raw || DEFAULT_API_BASE;
-  if (raw) {
-    localStorage.setItem('rankings_api_base', API_BASE);
-  } else {
-    localStorage.removeItem('rankings_api_base');
-  }
+  App.setApiBase(el.apiBaseInput.value.trim());
   checkSession();
 });
 
 (function init() {
-  el.apiBaseInput.value = API_BASE;
+  el.apiBaseInput.value = App.apiBase();
   checkSession().then((alreadyAuthed) => {
     if (!alreadyAuthed) el.username.focus();
   });

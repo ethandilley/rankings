@@ -163,3 +163,36 @@ Decisions made while implementing the `ai/` docs, with reasoning. Appended per s
 
 ### Ranking history / movement tracking explicitly not built
 - The doc defers it to its own separate project. Not built opportunistically here.
+
+## doc 09 — Next Steps & Backlog
+
+### 1.1 shared frontend assets keep page-specific themes intact
+- `web/app.css` and `web/app.js` are shared by `index.html`, `trades.html`, `consensus.html`, and `login.html`. `admin.html` links `app.js` only, preserving its separate blue theme and its `.dot.online`/`.dot.offline` status classes. `App.initAuth` is not used on `admin.html` because it would set shared `.status-dot.ok/.bad` classes that conflict with admin's design.
+
+### 2.2 per-player detail endpoint and shared drawer
+- `GET /rankings/player/{id}` returns the player identity, each owner's overall rank, positional rank, owner board total, and normalized overall rank, plus big-board consensus metrics when the player is eligible.
+- The consensus percentile is computed only among big-board-eligible players (ranked by ≥3 owners). Lower average normalized rank is better. The formula is `100 * (worse + 0.5 * (ties - 1)) / (n - 1)`, with `n = 1` returning 100, so unique-best is 100, unique-worst is 0, and exact ties split the difference.
+- The drawer is dynamically injected by `web/app.js` / `web/app.css`; pages wire player rows through `App.makePlayerClickable(node, playerID)` instead of adding per-page drawer DOM.
+
+### 2.1 ranking snapshots use a dated full table, not mutation instrumentation
+- Doc 08 §3 option (b) was followed: `ranking_snapshots` stores one row per `(owner, player_id)` for a single `taken_at`, with the rank, owner total, and a unique constraint on `(owner, player_id, taken_at)`. The one-shot `cmd/rankings-snapshot` command takes a snapshot of the current `rankings` table; no ranking mutation path is instrumented.
+- The movement endpoint is `GET /rankings/movement/{owner}`, not the initially more natural `GET /rankings/{owner}/movement`. Go 1.22 `http.ServeMux` rejects the latter because it ambiguously conflicts with the existing `GET /rankings/player/{id}` route at paths like `/rankings/player/movement`. The literal `/rankings/movement/` prefix avoids the conflict while keeping the owner as a path value.
+- Movement compares the latest snapshot's rank against the current rank for every player on the owner's current board. A negative delta is an improvement (`↑`), a positive delta is a worsening (`↓`), and zero is unchanged (`→`). Players absent from the previous snapshot are simply omitted from the movement glyph set.
+- The player-detail trend uses the same snapshots, averaged across owners per snapshot, and renders as a sparkline of `avg_normalized_rank`. Lower normalized rank is better, so the sparkline's top edge is rank `0.0` and the bottom edge is `1.0`.
+
+### 2.3 automatic sync uses `sync_log` + an in-process ticker
+- New `db/migrations/0010_sync_log.sql` records non-dry-run ESPN sync attempts only. `source` is one of `manual`, `startup`, `ticker`; `status` is `success` or `failure`; counters mirror the existing sync report plus `delete_skipped_count`.
+- `GET /sync/status` is auth-gated but not admin-only, so both the admin page and the board page can display it. It returns `enabled`, `interval`, latest `success`/`failure` timestamps, latest error, and the 20 most recent `sync_log` rows.
+- `POST /admin/sync-players` remains admin-only. Dry runs are not recorded in `sync_log`; non-dry runs are recorded as `manual`.
+- The ticker is in-process and disabled unless `ESPN_SYNC_INTERVAL` is set. The value is parsed as a Go duration; empty is off, and an invalid or nonpositive value makes `cmd/server` fail at startup.
+- The admin ESPN roster sync card polls `/sync/status` every 15 seconds and shows manual/dry-run actions plus recent failures. The board page shows a compact last-success/last-failure chip.
+- Admin failure guidance suggests rotating `ESPN_S2`/`ESPN_SWID` when the error matches `/403|expired|invalid|credentials/i`, because expired ESPN session cookies are the most likely cause.
+
+### Stretch: deep links, URL sync, print stylesheet, sticky owner dropdown, and ranked-by bar
+- `web/app.js` adds `App.updateQueryParam(name, value)` using `new URL(window.location)` and `history.replaceState`; it complements the existing `App.getQueryParam`.
+- `web/index.html` supports `?owner=<username>`; invalid or absent owners fall back to the existing default-owner logic. Changing owner updates the URL without adding history entries.
+- `web/trades.html` supports `?owner=` and `?scope=all|league|me`. `scope=all` and `scope=league` both map to the league scope; `scope=me` uses `scopeOwner` so the URL can deep-link to another owner's pairwise view.
+- `web/consensus.html` supports `?owner=` for the contrarian owner dropdown. If the owner is not in the contrarian list, the UI falls back to the whole-league view.
+- `web/consensus.html` adds a print stylesheet that hides the app header, tabs, status chrome, drawer, and link buttons; shows a print header with owner name and date; and neutralizes accent colors for black-and-white printing/screenshots.
+- `web/consensus.html` makes the contrarian owner dropdown sticky inside its section, and adds a small `ranked by N owners` bar under the big-board count column, scaled to the maximum `num_owners_ranked` in the current view.
+
