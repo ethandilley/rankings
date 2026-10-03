@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -70,8 +71,12 @@ func (s *AuthService) Register(mux *http.ServeMux) {
 func (s *AuthService) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, status := s.userFromRequest(r)
-		if status != 0 {
-			http.Error(w, "unauthorized", status)
+		if status != http.StatusOK {
+			if status == http.StatusUnauthorized {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
 		ctx := context.WithValue(r.Context(), contextKey{}, user)
@@ -95,6 +100,7 @@ func (s *AuthService) userFromRequest(r *http.Request) (*User, int) {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, http.StatusUnauthorized
 		}
+		log.Printf("auth: session lookup failed: %v", err)
 		return nil, http.StatusInternalServerError
 	}
 
@@ -107,7 +113,7 @@ func (s *AuthService) userFromRequest(r *http.Request) (*User, int) {
 		Username:    row.Username,
 		DisplayName: row.DisplayName,
 		IsAdmin:     row.IsAdmin,
-	}, 0
+	}, http.StatusOK
 }
 
 func (s *AuthService) login(w http.ResponseWriter, r *http.Request) {

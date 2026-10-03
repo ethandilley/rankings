@@ -196,3 +196,24 @@ Decisions made while implementing the `ai/` docs, with reasoning. Appended per s
 - `web/consensus.html` adds a print stylesheet that hides the app header, tabs, status chrome, drawer, and link buttons; shows a print header with owner name and date; and neutralizes accent colors for black-and-white printing/screenshots.
 - `web/consensus.html` makes the contrarian owner dropdown sticky inside its section, and adds a small `ranked by N owners` bar under the big-board count column, scaled to the maximum `num_owners_ranked` in the current view.
 
+## doc 10 — Connection Pool
+
+### pgxpool migration scope
+- `cmd/server` and `cmd/espn-sync` now create `*pgxpool.Pool` with `pgxpool.New`, immediately `Ping` for fail-fast startup, and pass the pool to all changed service constructors.
+- `cmd/adminuser` and `cmd/rankings-snapshot` intentionally keep one-shot `pgx.Connect`.
+- `Dockerfile` now copies `go.mod go.sum` before `go mod download`, because the pool pulls in transitive checksums.
+- No SQL, migration, sqlc, frontend, retry, health, or config-knob changes were added.
+
+### Transaction audit
+- Rankings multi-statement paths (`replaceRankings`, `movePlayer`, `applyRankOrder`, add/remove, and tier-break writes) use the transaction-bound `q` passed to `withTx` / `withOwnerRowsTx`; no pool-bound `h.q` calls were found inside those callbacks.
+- Rank-move serialization still comes from `ListRankingsByOwnerForUpdate` (`SELECT ... FOR UPDATE`), so concurrent moves for the same owner remain serialized.
+- Trades handlers are read-only.
+- Admin `createUser` is safe from duplicate races because the username unique constraint enforces the invariant.
+- Admin `resetPassword` is a low-risk read-then-update path and was left unchanged.
+- Admin `setAdmin` and `deleteUser` have a real last-admin check-then-write race. Because SQL/sqlc changes were out of scope, the fix serializes the whole handler in-process with `admin.AdminService.userMu`.
+- ESPN `Sync` performs a read-modify-write cycle against the local database. The fix adds `espn.Service.mu` around `Sync` so two syncs cannot interleave.
+
+### Auth error mapping kept as a separate commit
+- `userFromRequest` now returns `http.StatusOK` on success and logs non-`pgx.ErrNoRows` session lookup failures.
+- `RequireAuth` maps missing/invalid/expired sessions to `401 unauthorized` and database failures to `500 internal server error`, so a Postgres outage no longer looks like an auth failure.
+

@@ -413,3 +413,33 @@ verified, what was skipped, and the commit hash.
 - No external scheduler was added; the in-process ticker is the only scheduler in this environment.
 
 **Commit:** `cdafd9c` (pre-amend)
+
+## doc 10 — Replace the single `pgx.Conn` with a `pgxpool.Pool`
+
+### What was done
+- Replaced `*pgx.Conn` with `*pgxpool.Pool` in `auth`, `rankings`, `players`, `admin`, `syncstatus`, `trades`, and `espn`.
+- Updated `cmd/server/main.go` and `cmd/espn-sync/main.go` to create a pool with `pgxpool.New`, `Ping` immediately for fail-fast startup, and pass the pool to the services.
+- Updated `Dockerfile` to copy `go.mod go.sum` before `go mod download`.
+- Completed the transaction audit:
+  - rankings multi-statement paths already use the tx-bound queries inside `withTx` / `withOwnerRowsTx`;
+  - trades handlers are read-only;
+  - admin `setAdmin` and `deleteUser` were serialized with `AdminService.userMu` to protect the last-admin invariant;
+  - `espn.Service.Sync` was serialized with `espn.Service.mu` to prevent overlapping read-modify-write syncs.
+- Added the optional auth error-mapping fix as a separate commit: missing/invalid sessions return `401 unauthorized`, session-lookup DB errors return `500 internal server error`, and the underlying lookup error is logged.
+
+### What was verified
+- `go build ./...`, `go vet ./...`, and `go test ./...` are green.
+- `docker compose up -d --build server` starts cleanly and logs `server listening on :8080`.
+- Postgres-restart test: authenticated `/auth/me` returned `200` before `docker compose restart postgres`, `500 internal server error` while Postgres was down, and `200` again after Postgres became healthy without restarting the server container.
+- The auth error mapping logs the underlying failure during the Postgres outage: `auth: session lookup failed: failed to connect to ... connection refused`.
+- Unauthenticated requests still return `401 unauthorized`.
+- Concurrency smoke: 20 parallel bursts of `GET /players` and `GET /rankings?owner=ethan` produced 40/40 `200` responses.
+- Move correctness under the pool: seeded a temporary two-player board, moved the second player to rank 1, then moved the first player back to rank 1; ranks stayed contiguous `1..2` with no duplicates or gaps.
+- `rg -n "pgx\.Connect|\*pgx\.Conn" cmd internal` shows only the intended one-shot CLIs still using `pgx.Connect`.
+
+### What was skipped / deferred
+- Browser hard-refresh testing was approximated with a parallel `curl` burst.
+- `cmd/adminuser` and `cmd/rankings-snapshot` intentionally keep one-shot `pgx.Connect`.
+- No retries, circuit breakers, health endpoints, schema, SQL, sqlc, or frontend changes were added.
+
+**Commits:** `421fea3` (pool migration, pre-amend), `14a21e6` (auth error mapping, pre-amend)
