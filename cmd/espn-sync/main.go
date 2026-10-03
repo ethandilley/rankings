@@ -17,7 +17,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ethandilley/rankings/internal/espn"
 )
@@ -30,11 +30,14 @@ func main() {
 	if dbURL == "" {
 		log.Fatal("DB_URL not set")
 	}
-	conn, err := pgx.Connect(context.Background(), dbURL)
+	conn, err := pgxpool.New(context.Background(), dbURL)
 	if err != nil {
 		log.Fatalf("failed to connect to db: %v", err)
 	}
-	defer conn.Close(context.Background())
+	defer conn.Close()
+	if err := conn.Ping(context.Background()); err != nil {
+		log.Fatalf("failed to reach db: %v", err)
+	}
 
 	svc := espn.New(conn, espn.ConfigFromEnv())
 	report, err := svc.Sync(context.Background(), *dryRun)

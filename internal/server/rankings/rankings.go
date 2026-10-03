@@ -12,8 +12,8 @@ import (
 
 	"github.com/ethandilley/rankings/internal/db"
 	"github.com/ethandilley/rankings/internal/server/auth"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type PlayerRanking struct {
@@ -175,12 +175,12 @@ func parsePositionFilter(raw string) (kind positionFilterKind, value string, err
 }
 
 type RankingsService struct {
-	conn *pgx.Conn
+	conn *pgxpool.Pool
 	q    *db.Queries
 	auth *auth.AuthService
 }
 
-func NewRankingsService(conn *pgx.Conn, authService *auth.AuthService) *RankingsService {
+func NewRankingsService(conn *pgxpool.Pool, authService *auth.AuthService) *RankingsService {
 	return &RankingsService{conn: conn, q: db.New(conn), auth: authService}
 }
 

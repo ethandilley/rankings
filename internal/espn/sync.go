@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ethandilley/rankings/internal/db"
 	"github.com/ethandilley/rankings/internal/server/players"
@@ -119,7 +120,8 @@ func display(s string) string {
 // Service runs the sync: fetch ESPN, diff against the players table, and
 // apply the diff in one transaction.
 type Service struct {
-	conn    *pgx.Conn
+	mu      sync.Mutex
+	conn    *pgxpool.Pool
 	Queries *db.Queries
 	Config  Config
 }
@@ -127,7 +129,7 @@ type Service struct {
 // New builds a sync Service on the given connection. The ESPN Config is
 // taken from the environment at construction time; rotating cookies takes
 // effect on the next process start without a rebuild.
-func New(conn *pgx.Conn, cfg Config) *Service {
+func New(conn *pgxpool.Pool, cfg Config) *Service {
 	return &Service{conn: conn, Queries: db.New(conn), Config: cfg}
 }
 
@@ -150,6 +152,8 @@ type Report struct {
 // longer on any ESPN roster are deleted unless they are still referenced by
 // rankings; those deletes are skipped and reported instead.
 func (s *Service) Sync(ctx context.Context, dryRun bool) (*Report, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	league, err := FetchLeague(ctx, s.Config)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrFetchFailed, err)

@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/ethandilley/rankings/internal/db"
@@ -19,15 +21,16 @@ import (
 )
 
 type AdminService struct {
-	conn *pgx.Conn
-	q    *db.Queries
-	auth *auth.AuthService
-	espn *espn.Service
-	sync *syncstatus.Service
+	userMu sync.Mutex
+	conn   *pgxpool.Pool
+	q      *db.Queries
+	auth   *auth.AuthService
+	espn   *espn.Service
+	sync   *syncstatus.Service
 }
 
 func NewAdminService(
-	conn *pgx.Conn,
+	conn *pgxpool.Pool,
 	auth *auth.AuthService,
 	espnService *espn.Service,
 	syncService *syncstatus.Service,
@@ -208,6 +211,8 @@ func (s *AdminService) resetPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AdminService) setAdmin(w http.ResponseWriter, r *http.Request) {
+	s.userMu.Lock()
+	defer s.userMu.Unlock()
 	username := normalizeUsername(r.PathValue("username"))
 
 	var request struct {
@@ -269,6 +274,8 @@ func (s *AdminService) setAdmin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AdminService) deleteUser(w http.ResponseWriter, r *http.Request) {
+	s.userMu.Lock()
+	defer s.userMu.Unlock()
 	username := normalizeUsername(r.PathValue("username"))
 	if username == "" {
 		http.Error(w, "username is required", http.StatusBadRequest)

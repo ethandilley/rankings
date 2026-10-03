@@ -18,7 +18,7 @@ import (
 	"github.com/ethandilley/rankings/internal/server/rankings"
 	"github.com/ethandilley/rankings/internal/server/syncstatus"
 	"github.com/ethandilley/rankings/internal/server/trades"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
@@ -29,11 +29,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	conn, err := pgx.Connect(ctx, dbURL)
+	conn, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		log.Fatalf("failed to connect to db: %v", err)
 	}
-	defer conn.Close(context.Background())
+	defer conn.Close()
+	if err := conn.Ping(ctx); err != nil {
+		log.Fatalf("failed to reach db: %v", err)
+	}
 
 	authService := auth.NewAuthService(conn)
 	rankingsService := rankings.NewRankingsService(conn, authService)

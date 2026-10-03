@@ -14,6 +14,7 @@ import (
 	"github.com/ethandilley/rankings/internal/db"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -48,11 +49,11 @@ type passwordRequest struct {
 }
 
 type AuthService struct {
-	conn *pgx.Conn
+	conn *pgxpool.Pool
 	q    *db.Queries
 }
 
-func NewAuthService(conn *pgx.Conn) *AuthService {
+func NewAuthService(conn *pgxpool.Pool) *AuthService {
 	return &AuthService{
 		conn: conn,
 		q:    db.New(conn),

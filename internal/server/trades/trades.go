@@ -9,7 +9,7 @@ import (
 
 	"github.com/ethandilley/rankings/internal/db"
 	"github.com/ethandilley/rankings/internal/server/auth"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // minRankedPlayers is the minimum number of ranked players an owner must have
@@ -109,12 +109,12 @@ type ContrarianResponse struct {
 }
 
 type TradesService struct {
-	conn *pgx.Conn
+	conn *pgxpool.Pool
 	q    *db.Queries
 	auth *auth.AuthService
 }
 
-func NewTradesService(conn *pgx.Conn, authService *auth.AuthService) *TradesService {
+func NewTradesService(conn *pgxpool.Pool, authService *auth.AuthService) *TradesService {
 	return &TradesService{conn: conn, q: db.New(conn), auth: authService}
 }
 

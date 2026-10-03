@@ -6,8 +6,8 @@ import (
 
 	"github.com/ethandilley/rankings/internal/db"
 	"github.com/ethandilley/rankings/internal/server/auth"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Player struct {
@@ -19,12 +19,12 @@ type Player struct {
 }
 
 type PlayersService struct {
-	conn *pgx.Conn
+	conn *pgxpool.Pool
 	q    *db.Queries
 	auth *auth.AuthService
 }
 
-func NewPlayersService(conn *pgx.Conn, authService *auth.AuthService) *PlayersService {
+func NewPlayersService(conn *pgxpool.Pool, authService *auth.AuthService) *PlayersService {
 	return &PlayersService{conn: conn, q: db.New(conn), auth: authService}
 }
 

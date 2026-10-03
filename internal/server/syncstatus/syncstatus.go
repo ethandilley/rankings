@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ethandilley/rankings/internal/db"
 	"github.com/ethandilley/rankings/internal/espn"
@@ -28,7 +29,7 @@ type Service struct {
 }
 
 func New(
-	conn *pgx.Conn,
+	conn *pgxpool.Pool,
 	auth *auth.AuthService,
 	espnService *espn.Service,
 	enabled bool,
